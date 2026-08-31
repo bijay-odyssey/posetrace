@@ -1,10 +1,14 @@
 // Turns pose/framing error into short spoken-style coaching phrases.
+//
+// All directions in these phrases are screen-space: "left" means the left side
+// of the screen (matching the framing/lean phrases below). On a mirrored preview
+// the anatomical side already lands on the matching side of the screen; on a
+// non-mirrored preview they are opposite, so the word is swapped there.
 type Framing = { dx: number; dy: number; scale: number };
 
-/** Side word as the user sees it on screen: swapped when the preview is mirrored. */
 const side = (key: string, mirror: boolean): 'left' | 'right' => {
   const anatomicalLeft = key[0] === 'l';
-  return anatomicalLeft !== mirror ? 'left' : 'right';
+  return anatomicalLeft === mirror ? 'left' : 'right';
 };
 
 /** @param d live angle minus target angle, radians */
