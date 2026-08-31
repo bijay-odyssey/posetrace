@@ -21,6 +21,7 @@ export type LoopSettings = {
   autoShutter: boolean;
   readyScore: number;
   ghostStyle: GhostStyle;
+  burnOverlay: boolean;
 };
 
 type Ref<T> = { current: T | null };
@@ -28,6 +29,13 @@ type Ref<T> = { current: T | null };
 export type SilhouetteHandle = {
   img: CanvasImageSource;
   bbox: { x: number; y: number; w: number; h: number };
+};
+
+/** Latest inference output, for compositing the overlay into a captured photo. */
+export type FrameSnapshot = {
+  live: Landmark[] | null;
+  others: Landmark[][];
+  jointErrors: Record<string, number> | null;
 };
 
 type Props = {
@@ -39,6 +47,7 @@ type Props = {
   settingsRef: Ref<LoopSettings>;
   levelRef?: Ref<{ roll: number }>;
   silhouetteRef?: Ref<SilhouetteHandle>;
+  frameRef?: Ref<FrameSnapshot>;
   onStats: (s: LoopStats) => void;
   onAutoCapture: () => void;
   onReadyChange?: (ready: boolean) => void;
@@ -157,6 +166,14 @@ export function usePoseLoop(props: Props): void {
         ghostStyle: s?.ghostStyle ?? 'both',
         level: latest.current.levelRef?.current ?? null,
       });
+
+      if (latest.current.frameRef) {
+        latest.current.frameRef.current = {
+          live: liveLandmarks,
+          others,
+          jointErrors: match?.jointErrors ?? null,
+        };
+      }
 
       const readyNow = match?.ready ?? false;
       if (readyNow !== prevReady) {

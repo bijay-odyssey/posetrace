@@ -65,6 +65,15 @@ export function OptionsSheet(props: Props) {
         </label>
 
         <label class="opt">
+          <span>Burn overlay into photo</span>
+          <input
+            type="checkbox"
+            checked={settings.burnOverlay}
+            onChange={(e) => onChange({ burnOverlay: (e.currentTarget as HTMLInputElement).checked })}
+          />
+        </label>
+
+        <label class="opt">
           <span>3D pose preview</span>
           <input
             type="checkbox"
