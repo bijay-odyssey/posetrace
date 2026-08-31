@@ -1,6 +1,6 @@
 // Lazy-loaded three.js widget: a small translucent 3D figure built from a
 // pose's landmarks (metric world landmarks when available, otherwise the flat
-// 2D pose). Slowly auto-rotates so the 3D shape reads.
+// 2D pose). Drag to orbit, pinch / wheel to zoom; idles into a slow spin.
 import { CONNECTIONS } from '../pose/landmarks';
 import type { Landmark, World } from '../pose/types';
 
@@ -87,11 +87,67 @@ export async function createPosePreview(
 
   if (initial) setPose(initial.landmarks, initial.world);
 
+  // ---- drag to orbit, pinch / wheel to zoom, idle spin when left alone ------
+  const MIN_Z = 1.8;
+  const MAX_Z = 6;
+  const IDLE_MS = 2500;
+  const pointers = new Map<number, { x: number; y: number }>();
+  let yaw = 0;
+  let pitch = 0;
+  let pinchDist = 0;
+  let lastInteract = -IDLE_MS;
+
+  const clampZoom = (z: number) => Math.max(MIN_Z, Math.min(MAX_Z, z));
+
+  const onPointerDown = (e: PointerEvent) => {
+    canvas.setPointerCapture(e.pointerId);
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    pinchDist = 0;
+    lastInteract = performance.now();
+  };
+  const onPointerMove = (e: PointerEvent) => {
+    const p = pointers.get(e.pointerId);
+    if (!p) return;
+    const dx = e.clientX - p.x;
+    const dy = e.clientY - p.y;
+    p.x = e.clientX;
+    p.y = e.clientY;
+
+    if (pointers.size === 1) {
+      yaw += dx * 0.01;
+      pitch = Math.max(-1.2, Math.min(1.2, pitch + dy * 0.01));
+    } else if (pointers.size === 2) {
+      const [a, b] = [...pointers.values()];
+      const d = Math.hypot(a.x - b.x, a.y - b.y);
+      if (pinchDist) camera.position.z = clampZoom((camera.position.z * pinchDist) / d);
+      pinchDist = d;
+    }
+    lastInteract = performance.now();
+  };
+  const onPointerUp = (e: PointerEvent) => {
+    pointers.delete(e.pointerId);
+    if (pointers.size < 2) pinchDist = 0;
+    lastInteract = performance.now();
+  };
+  const onWheel = (e: WheelEvent) => {
+    e.preventDefault();
+    camera.position.z = clampZoom(camera.position.z + e.deltaY * 0.002);
+    lastInteract = performance.now();
+  };
+
+  canvas.style.touchAction = 'none';
+  canvas.addEventListener('pointerdown', onPointerDown);
+  canvas.addEventListener('pointermove', onPointerMove);
+  canvas.addEventListener('pointerup', onPointerUp);
+  canvas.addEventListener('pointercancel', onPointerUp);
+  canvas.addEventListener('wheel', onWheel, { passive: false });
+
   let raf = 0;
   let stopped = false;
   const tick = () => {
     if (stopped) return;
-    spin.rotation.y += 0.012;
+    if (pointers.size === 0 && performance.now() - lastInteract > IDLE_MS) yaw += 0.012;
+    spin.rotation.set(pitch, yaw, 0);
     renderer.render(scene, camera);
     raf = requestAnimationFrame(tick);
   };
@@ -102,6 +158,11 @@ export async function createPosePreview(
     dispose() {
       stopped = true;
       cancelAnimationFrame(raf);
+      canvas.removeEventListener('pointerdown', onPointerDown);
+      canvas.removeEventListener('pointermove', onPointerMove);
+      canvas.removeEventListener('pointerup', onPointerUp);
+      canvas.removeEventListener('pointercancel', onPointerUp);
+      canvas.removeEventListener('wheel', onWheel);
       jointGeo.dispose();
       boneGeo.dispose();
       jointMat.dispose();
