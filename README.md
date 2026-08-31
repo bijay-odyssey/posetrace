@@ -35,11 +35,15 @@ phone camera — like the Huawei / Xiaomi "ghost silhouette" pose guide.
   shape — the Huawei-style "ghost". `Options → Ghost style` switches between
   Silhouette / Skeleton / Both. (Bank poses have no cut-out → skeleton only.)
 - **3D pose preview:** `Options → 3D pose preview` opens a small three.js panel
-  showing the target pose as a slowly rotating translucent figure — built from the
-  photo's metric world landmarks, or the flat 2D pose for bank poses. three.js is
-  a lazy chunk, loaded only when opened.
+  showing the target pose as a translucent figure — drag to orbit, pinch/wheel to
+  zoom, idles into a slow spin. Built from the photo's metric world landmarks, or
+  the flat 2D pose for bank poses. three.js is a lazy chunk, loaded only when
+  opened.
 - **Group aware:** up to 3 people are detected; the largest/nearest is the one
   scored, the others are drawn dimly so friends in frame don't break the match.
+- **Burn overlay into photo:** `Options` toggle — the skeleton / silhouette ghost
+  is composited into the saved JPEG (grid and level guides never are). When on,
+  the photo is cropped to the viewfinder so it lines up.
 - Offline after first use — app shell is precached; wasm, pose model, the
   TensorFlow bundle and the three.js bundle are cached on first fetch.
 
@@ -81,6 +85,7 @@ phone.
 | Coaching phrases | `src/match/hints.ts` |
 | Skeleton + ghost drawing | `src/overlay/draw.ts` |
 | Frame loop (infer → filter → match → draw) | `src/hooks/usePoseLoop.ts` |
+| `object-fit: cover` crop math (preview + capture) | `src/overlay/coverCrop.ts` |
 | Reference-photo pose extraction | `src/reference/importImage.ts` |
 | Template persistence | `src/store/templates.ts` |
 | Built-in pose bank + scene tags | `src/data/poseBank.ts`, `src/data/suggest.ts` |
@@ -114,12 +119,12 @@ in `src/overlay/draw.ts`, filter constants in `src/filter/oneEuro.ts`,
 
 ## Roadmap
 
+Tracked as GitHub issues:
+
 - Group *templates* (match several people to a multi-person reference), not just
   drawing extra skeletons.
 - A real scene model (Places365 converted to TFJS) to replace the ImageNet-label
   heuristic in `src/scene/classifier.ts`.
-- Burn-in option: composite the skeleton/silhouette into the saved photo.
-- Orbit/pinch controls on the 3D preview instead of auto-rotate.
 
 ## Credits (all Apache-2.0 / MIT)
 
