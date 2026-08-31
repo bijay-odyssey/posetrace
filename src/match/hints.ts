@@ -1,12 +1,20 @@
 // Turns pose/framing error into short spoken-style coaching phrases.
+//
+// All directions in these phrases are screen-space: "left" means the left side
+// of the screen (matching the framing/lean phrases below). On a mirrored preview
+// the anatomical side already lands on the matching side of the screen; on a
+// non-mirrored preview they are opposite, so the word is swapped there.
 type Framing = { dx: number; dy: number; scale: number };
 
-const side = (key: string) => (key[0] === 'l' ? 'left' : 'right');
+const side = (key: string, mirror: boolean): 'left' | 'right' => {
+  const anatomicalLeft = key[0] === 'l';
+  return anatomicalLeft === mirror ? 'left' : 'right';
+};
 
 /** @param d live angle minus target angle, radians */
-function jointHint(key: string, d: number): string | null {
+function jointHint(key: string, d: number, mirror: boolean): string | null {
   if (Math.abs(d) < 0.2) return null;
-  const s = side(key);
+  const s = side(key, mirror);
   if (key.endsWith('Elbow')) return d < 0 ? `straighten your ${s} arm` : `bend your ${s} arm more`;
   if (key.endsWith('Shoulder')) return d < 0 ? `raise your ${s} arm` : `lower your ${s} arm`;
   if (key.endsWith('Knee')) return d < 0 ? `straighten your ${s} leg` : `bend your ${s} knee`;
@@ -49,7 +57,7 @@ export function buildHints(
     .sort((a, b) => jointErrors[b] - jointErrors[a]);
 
   const jointPhrases = jointOrder
-    .map((k) => jointHint(k, live[k] - target[k]))
+    .map((k) => jointHint(k, live[k] - target[k], mirror))
     .filter((v): v is string => !!v);
 
   const torso = torsoHint(live.torso - target.torso, mirror);
