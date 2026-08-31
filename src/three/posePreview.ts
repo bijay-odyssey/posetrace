@@ -92,6 +92,7 @@ export async function createPosePreview(
   const MAX_Z = 6;
   const IDLE_MS = 2500;
   const pointers = new Map<number, { x: number; y: number }>();
+  let gesture: 'none' | 'orbit' | 'pinch' = 'none';
   let yaw = 0;
   let pitch = 0;
   let pinchDist = 0;
@@ -99,9 +100,19 @@ export async function createPosePreview(
 
   const clampZoom = (z: number) => Math.max(MIN_Z, Math.min(MAX_Z, z));
 
+  const dropPointer = (id: number) => {
+    pointers.delete(id);
+    if (pointers.size < 2) pinchDist = 0;
+    if (pointers.size === 0) gesture = 'none';
+    lastInteract = performance.now();
+  };
+
   const onPointerDown = (e: PointerEvent) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
     canvas.setPointerCapture(e.pointerId);
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    // Latch the gesture: once a pinch starts, lifting one finger must not orbit.
+    gesture = pointers.size >= 2 ? 'pinch' : 'orbit';
     pinchDist = 0;
     lastInteract = performance.now();
   };
@@ -113,25 +124,23 @@ export async function createPosePreview(
     p.x = e.clientX;
     p.y = e.clientY;
 
-    if (pointers.size === 1) {
+    if (gesture === 'orbit' && pointers.size === 1) {
       yaw += dx * 0.01;
       pitch = Math.max(-1.2, Math.min(1.2, pitch + dy * 0.01));
-    } else if (pointers.size === 2) {
+    } else if (gesture === 'pinch' && pointers.size >= 2) {
       const [a, b] = [...pointers.values()];
       const d = Math.hypot(a.x - b.x, a.y - b.y);
-      if (pinchDist) camera.position.z = clampZoom((camera.position.z * pinchDist) / d);
+      if (pinchDist && d > 0) camera.position.z = clampZoom((camera.position.z * pinchDist) / d);
       pinchDist = d;
     }
     lastInteract = performance.now();
   };
-  const onPointerUp = (e: PointerEvent) => {
-    pointers.delete(e.pointerId);
-    if (pointers.size < 2) pinchDist = 0;
-    lastInteract = performance.now();
-  };
+  const onPointerUp = (e: PointerEvent) => dropPointer(e.pointerId);
   const onWheel = (e: WheelEvent) => {
     e.preventDefault();
-    camera.position.z = clampZoom(camera.position.z + e.deltaY * 0.002);
+    // Normalise line / page delta modes to pixels.
+    const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1;
+    camera.position.z = clampZoom(camera.position.z + e.deltaY * unit * 0.002);
     lastInteract = performance.now();
   };
 
@@ -140,6 +149,7 @@ export async function createPosePreview(
   canvas.addEventListener('pointermove', onPointerMove);
   canvas.addEventListener('pointerup', onPointerUp);
   canvas.addEventListener('pointercancel', onPointerUp);
+  canvas.addEventListener('lostpointercapture', onPointerUp);
   canvas.addEventListener('wheel', onWheel, { passive: false });
 
   let raf = 0;
@@ -162,6 +172,7 @@ export async function createPosePreview(
       canvas.removeEventListener('pointermove', onPointerMove);
       canvas.removeEventListener('pointerup', onPointerUp);
       canvas.removeEventListener('pointercancel', onPointerUp);
+      canvas.removeEventListener('lostpointercapture', onPointerUp);
       canvas.removeEventListener('wheel', onWheel);
       jointGeo.dispose();
       boneGeo.dispose();
