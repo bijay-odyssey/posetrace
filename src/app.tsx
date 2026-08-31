@@ -3,10 +3,13 @@ import { startCamera, stopStream, type Facing } from './camera';
 import { createPoseEngine, type PoseEngine } from './pose/poseClient';
 import {
   usePoseLoop,
+  type FrameSnapshot,
   type LoopSettings,
   type LoopStats,
   type SilhouetteHandle,
 } from './hooks/usePoseLoop';
+import { coverCrop, makeProjection } from './overlay/coverCrop';
+import { drawOverlay } from './overlay/draw';
 import { useWakeLock } from './hooks/useWakeLock';
 import { requestLevelPermission, useLevel } from './hooks/useLevel';
 import {
@@ -36,6 +39,7 @@ const DEFAULT_SETTINGS: LoopSettings = {
   autoShutter: false,
   readyScore: 82,
   ghostStyle: 'both',
+  burnOverlay: false,
 };
 
 export function App() {
@@ -61,6 +65,8 @@ export function App() {
   const [settings, setSettings] = useState<LoopSettings>(DEFAULT_SETTINGS);
   const settingsRef = useRef<LoopSettings>(settings);
   settingsRef.current = settings;
+
+  const frameRef = useRef<FrameSnapshot | null>(null);
 
   const [stats, setStats] = useState<LoopStats>({ score: 0, hints: [], ready: false, fps: 0, mode: '' });
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -198,17 +204,57 @@ export function App() {
 
   async function capture() {
     const v = videoRef.current;
-    if (!v || !v.videoWidth) return;
+    const overlay = canvasRef.current;
+    if (!v || !v.videoWidth || !overlay) return;
     cues.shutter();
+
+    const s = settingsRef.current;
+    const vW = v.videoWidth;
+    const vH = v.videoHeight;
+    const frame = frameRef.current;
+    const burn = s.burnOverlay && !!frame;
+
+    // Default: save the full sensor frame. When burning the overlay in, crop to
+    // the visible `object-fit: cover` region so overlay and photo share geometry.
+    let crop = { srcX: 0, srcY: 0, srcW: vW, srcH: vH };
+    if (burn) {
+      const box = overlay.getBoundingClientRect();
+      crop = coverCrop(vW, vH, box.width || vW, box.height || vH);
+    }
+    const outW = Math.round(crop.srcW);
+    const outH = Math.round(crop.srcH);
+
     const canvas = document.createElement('canvas');
-    canvas.width = v.videoWidth;
-    canvas.height = v.videoHeight;
+    canvas.width = outW;
+    canvas.height = outH;
     const ctx = canvas.getContext('2d')!;
-    if (settingsRef.current.mirror) {
-      ctx.translate(canvas.width, 0);
+
+    ctx.save();
+    if (s.mirror) {
+      ctx.translate(outW, 0);
       ctx.scale(-1, 1);
     }
-    ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
+    ctx.drawImage(v, crop.srcX, crop.srcY, crop.srcW, crop.srcH, 0, 0, outW, outH);
+    ctx.restore();
+
+    if (burn && frame) {
+      drawOverlay(ctx, {
+        w: outW,
+        h: outH,
+        mirror: s.mirror,
+        project: makeProjection(crop, vW, vH, outW, outH),
+        live: frame.live,
+        others: frame.others,
+        template: templateRef.current,
+        jointErrors: frame.jointErrors,
+        showGrid: false,
+        silhouette: silhouetteRef.current,
+        ghostStyle: s.ghostStyle,
+        level: null,
+        clear: false,
+      });
+    }
+
     const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/jpeg', 0.92));
     if (!blob) return;
     setReview({ url: URL.createObjectURL(blob), blob });
@@ -267,6 +313,7 @@ export function App() {
     settingsRef,
     levelRef,
     silhouetteRef,
+    frameRef,
     onStats: setStats,
     onReadyChange: (ready) => {
       if (ready) cues.aligned();

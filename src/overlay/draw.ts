@@ -20,6 +20,8 @@ export type OverlayInput = {
   ghostStyle?: 'skeleton' | 'silhouette' | 'both';
   /** Device left/right tilt in degrees; draws a centred level bar. */
   level?: { roll: number } | null;
+  /** Clear the canvas first (default true); false to composite over existing pixels. */
+  clear?: boolean;
 };
 
 const CYAN = '#22d3ee';
@@ -119,7 +121,7 @@ function drawThirds(ctx: CanvasRenderingContext2D, w: number, h: number): void {
 export function drawOverlay(ctx: CanvasRenderingContext2D, input: OverlayInput): void {
   const { w, h, mirror, project, live, template, jointErrors, showGrid } = input;
   const ghostStyle = input.ghostStyle ?? 'both';
-  ctx.clearRect(0, 0, w, h);
+  if (input.clear !== false) ctx.clearRect(0, 0, w, h);
 
   ctx.save();
   if (mirror) {

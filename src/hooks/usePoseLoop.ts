@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'preact/hooks';
 import { PoseFilter } from '../filter/oneEuro';
 import { matchPose } from '../match/matcher';
+import { coverCrop, makeProjection } from '../overlay/coverCrop';
 import { drawOverlay } from '../overlay/draw';
 import type { PoseEngine } from '../pose/poseClient';
 import type { Landmark, MatchResult, Template } from '../pose/types';
@@ -21,6 +22,7 @@ export type LoopSettings = {
   autoShutter: boolean;
   readyScore: number;
   ghostStyle: GhostStyle;
+  burnOverlay: boolean;
 };
 
 type Ref<T> = { current: T | null };
@@ -28,6 +30,13 @@ type Ref<T> = { current: T | null };
 export type SilhouetteHandle = {
   img: CanvasImageSource;
   bbox: { x: number; y: number; w: number; h: number };
+};
+
+/** Latest inference output, for compositing the overlay into a captured photo. */
+export type FrameSnapshot = {
+  live: Landmark[] | null;
+  others: Landmark[][];
+  jointErrors: Record<string, number> | null;
 };
 
 type Props = {
@@ -39,6 +48,7 @@ type Props = {
   settingsRef: Ref<LoopSettings>;
   levelRef?: Ref<{ roll: number }>;
   silhouetteRef?: Ref<SilhouetteHandle>;
+  frameRef?: Ref<FrameSnapshot>;
   onStats: (s: LoopStats) => void;
   onAutoCapture: () => void;
   onReadyChange?: (ready: boolean) => void;
@@ -133,15 +143,7 @@ export function usePoseLoop(props: Props): void {
       // `object-fit: cover` crop the <video> applies.
       const vw = video.videoWidth || w;
       const vh = video.videoHeight || h;
-      const coverScale = Math.max(w / vw, h / vh);
-      const dispW = vw * coverScale;
-      const dispH = vh * coverScale;
-      const offX = (w - dispW) / 2;
-      const offY = (h - dispH) / 2;
-      const project = (nx: number, ny: number): [number, number] => [
-        offX + nx * dispW,
-        offY + ny * dispH,
-      ];
+      const project = makeProjection(coverCrop(vw, vh, w, h), vw, vh, w, h);
 
       drawOverlay(ctx, {
         w,
@@ -157,6 +159,15 @@ export function usePoseLoop(props: Props): void {
         ghostStyle: s?.ghostStyle ?? 'both',
         level: latest.current.levelRef?.current ?? null,
       });
+
+      // Only kept for photo burn-in; skip the per-frame allocation otherwise.
+      if (latest.current.frameRef && s?.burnOverlay) {
+        latest.current.frameRef.current = {
+          live: liveLandmarks,
+          others,
+          jointErrors: match?.jointErrors ?? null,
+        };
+      }
 
       const readyNow = match?.ready ?? false;
       if (readyNow !== prevReady) {
