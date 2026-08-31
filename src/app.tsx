@@ -8,6 +8,7 @@ import {
   type LoopStats,
   type SilhouetteHandle,
 } from './hooks/usePoseLoop';
+import { coverCrop, makeProjection } from './overlay/coverCrop';
 import { drawOverlay } from './overlay/draw';
 import { useWakeLock } from './hooks/useWakeLock';
 import { requestLevelPermission, useLevel } from './hooks/useLevel';
@@ -210,18 +211,18 @@ export function App() {
     const s = settingsRef.current;
     const vW = v.videoWidth;
     const vH = v.videoHeight;
+    const frame = frameRef.current;
+    const burn = s.burnOverlay && !!frame;
 
-    // Match the on-screen `object-fit: cover` crop so the photo == the viewfinder.
-    const box = overlay.getBoundingClientRect();
-    const boxW = box.width || vW;
-    const boxH = box.height || vH;
-    const coverScale = Math.max(boxW / vW, boxH / vH);
-    const srcW = boxW / coverScale;
-    const srcH = boxH / coverScale;
-    const srcX = (vW - srcW) / 2;
-    const srcY = (vH - srcH) / 2;
-    const outW = Math.round(srcW);
-    const outH = Math.round(srcH);
+    // Default: save the full sensor frame. When burning the overlay in, crop to
+    // the visible `object-fit: cover` region so overlay and photo share geometry.
+    let crop = { srcX: 0, srcY: 0, srcW: vW, srcH: vH };
+    if (burn) {
+      const box = overlay.getBoundingClientRect();
+      crop = coverCrop(vW, vH, box.width || vW, box.height || vH);
+    }
+    const outW = Math.round(crop.srcW);
+    const outH = Math.round(crop.srcH);
 
     const canvas = document.createElement('canvas');
     canvas.width = outW;
@@ -233,16 +234,15 @@ export function App() {
       ctx.translate(outW, 0);
       ctx.scale(-1, 1);
     }
-    ctx.drawImage(v, srcX, srcY, srcW, srcH, 0, 0, outW, outH);
+    ctx.drawImage(v, crop.srcX, crop.srcY, crop.srcW, crop.srcH, 0, 0, outW, outH);
     ctx.restore();
 
-    const frame = frameRef.current;
-    if (s.burnOverlay && frame) {
+    if (burn && frame) {
       drawOverlay(ctx, {
         w: outW,
         h: outH,
         mirror: s.mirror,
-        project: (nx, ny) => [((nx * vW - srcX) / srcW) * outW, ((ny * vH - srcY) / srcH) * outH],
+        project: makeProjection(crop, vW, vH, outW, outH),
         live: frame.live,
         others: frame.others,
         template: templateRef.current,

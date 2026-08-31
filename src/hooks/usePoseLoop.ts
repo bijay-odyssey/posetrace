@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'preact/hooks';
 import { PoseFilter } from '../filter/oneEuro';
 import { matchPose } from '../match/matcher';
+import { coverCrop, makeProjection } from '../overlay/coverCrop';
 import { drawOverlay } from '../overlay/draw';
 import type { PoseEngine } from '../pose/poseClient';
 import type { Landmark, MatchResult, Template } from '../pose/types';
@@ -142,15 +143,7 @@ export function usePoseLoop(props: Props): void {
       // `object-fit: cover` crop the <video> applies.
       const vw = video.videoWidth || w;
       const vh = video.videoHeight || h;
-      const coverScale = Math.max(w / vw, h / vh);
-      const dispW = vw * coverScale;
-      const dispH = vh * coverScale;
-      const offX = (w - dispW) / 2;
-      const offY = (h - dispH) / 2;
-      const project = (nx: number, ny: number): [number, number] => [
-        offX + nx * dispW,
-        offY + ny * dispH,
-      ];
+      const project = makeProjection(coverCrop(vw, vh, w, h), vw, vh, w, h);
 
       drawOverlay(ctx, {
         w,
@@ -167,7 +160,8 @@ export function usePoseLoop(props: Props): void {
         level: latest.current.levelRef?.current ?? null,
       });
 
-      if (latest.current.frameRef) {
+      // Only kept for photo burn-in; skip the per-frame allocation otherwise.
+      if (latest.current.frameRef && s?.burnOverlay) {
         latest.current.frameRef.current = {
           live: liveLandmarks,
           others,
