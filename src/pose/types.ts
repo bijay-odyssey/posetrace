@@ -20,16 +20,23 @@ export type Silhouette = {
   bbox: { x: number; y: number; w: number; h: number };
 };
 
+/** One person's pose within a template. */
+export type TemplatePose = {
+  landmarks: Landmark[];
+  world?: World[];
+  silhouette?: Silhouette;
+};
+
 export type Template = {
   id: string;
   name: string;
   createdAt: number;
-  /** 33 landmarks, normalized image space. */
+  /** Primary pose (mirrors `poses[0]`); kept for compatibility with v1 data. */
   landmarks: Landmark[];
-  /** Metric world landmarks, when captured from a photo. */
   world?: World[];
-  /** Person cut-out, when captured from a photo. */
   silhouette?: Silhouette;
+  /** Present for multi-person templates. Absent = single-person (use fields above). */
+  poses?: TemplatePose[];
   /** Small JPEG/PNG data URL used as a thumbnail. */
   thumb?: string;
 };

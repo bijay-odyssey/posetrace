@@ -1,4 +1,5 @@
-import { detectImage, initImageLandmarker } from '../pose/runLandmarker';
+import { bbox } from '../match/normalize';
+import { detectImage, initImageLandmarker, type MaskData } from '../pose/runLandmarker';
 import type { Landmark, Silhouette, World } from '../pose/types';
 
 let imageLandmarker: Awaited<ReturnType<typeof initImageLandmarker>> | null = null;
@@ -23,7 +24,7 @@ async function makeThumb(bitmap: ImageBitmap, maxSize: number): Promise<string> 
 }
 
 /** Turn the pose segmentation mask into a cropped, translucent white cut-out. */
-function buildSilhouette(mask: { data: Float32Array; width: number; height: number }): Silhouette | undefined {
+function buildSilhouette(mask: MaskData): Silhouette | undefined {
   const { data, width, height } = mask;
   let minX = width;
   let minY = height;
@@ -81,25 +82,58 @@ function buildSilhouette(mask: { data: Float32Array; width: number; height: numb
 
 export type ExtractedPose = {
   landmarks: Landmark[];
-  thumb: string;
   world?: World[];
   silhouette?: Silhouette;
 };
 
+export type Extraction = {
+  /** People found, ordered left-to-right by bounding-box centre. */
+  people: ExtractedPose[];
+  /** Index of the most prominent (largest) person. */
+  primary: number;
+  /** JPEG data URL of the source photo. */
+  thumb: string;
+};
+
+/** Drop detections much smaller than the biggest one (posters, reflections, passers-by). */
+const MIN_AREA_RATIO = 0.22;
+
 /** Run pose estimation on an uploaded reference photo. Returns null if no person. */
-export async function extractPose(file: File): Promise<ExtractedPose | null> {
+export async function extractPoses(file: File): Promise<Extraction | null> {
   const lm = await getLandmarker();
   const bitmap = await createImageBitmap(file);
   try {
-    const result = detectImage(lm, bitmap);
+    const found = detectImage(lm, bitmap);
     const thumb = await makeThumb(bitmap, 160);
-    if (!result.landmarks) return null;
-    return {
-      landmarks: result.landmarks,
-      thumb,
-      world: result.worldLandmarks ?? undefined,
-      silhouette: result.mask ? buildSilhouette(result.mask) : undefined,
-    };
+    if (found.length === 0) return null;
+
+    const meta = found.map((p) => {
+      const b = bbox(p.landmarks);
+      return { p, cx: b.cx, area: Math.max(b.w * b.h, 1e-6) };
+    });
+    const maxArea = Math.max(...meta.map((m) => m.area));
+    const kept = meta
+      .filter((m) => m.area >= maxArea * MIN_AREA_RATIO)
+      .sort((a, b) => a.cx - b.cx);
+
+    // Silhouettes are only used for single-person ghosts.
+    const single = kept.length === 1;
+    const people: ExtractedPose[] = kept.map((m) => ({
+      landmarks: m.p.landmarks,
+      world: m.p.world ?? undefined,
+      silhouette: single && m.p.mask ? buildSilhouette(m.p.mask) : undefined,
+    }));
+
+    let primary = 0;
+    let biggest = -1;
+    kept.forEach((m, i) => {
+      if (m.area > biggest) {
+        biggest = m.area;
+        primary = i;
+      }
+    });
+
+    return { people, primary, thumb };
   } finally {
     bitmap.close();
   }

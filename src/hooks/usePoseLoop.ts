@@ -1,13 +1,23 @@
 import { useEffect, useRef } from 'preact/hooks';
+import { isGroupTemplate, templatePoses } from '../data/templatePose';
 import { PoseFilter } from '../filter/oneEuro';
-import { matchPose } from '../match/matcher';
+import { type GroupMatch, matchGroup, matchPose } from '../match/matcher';
 import { coverCrop, makeProjection } from '../overlay/coverCrop';
-import { drawOverlay } from '../overlay/draw';
+import {
+  drawOverlay,
+  type OverlayGhost,
+  type OverlayPerson,
+  type SilhouetteHandle,
+} from '../overlay/draw';
 import type { PoseEngine } from '../pose/poseClient';
-import type { Landmark, MatchResult, Template } from '../pose/types';
+import type { Landmark, MatchResult, Template, TemplatePose } from '../pose/types';
+
+export type { SilhouetteHandle };
 
 export type LoopStats = {
   score: number;
+  /** Per-person scores when a group template is active; empty otherwise. */
+  perScore: number[];
   hints: string[];
   ready: boolean;
   fps: number;
@@ -27,16 +37,10 @@ export type LoopSettings = {
 
 type Ref<T> = { current: T | null };
 
-export type SilhouetteHandle = {
-  img: CanvasImageSource;
-  bbox: { x: number; y: number; w: number; h: number };
-};
-
-/** Latest inference output, for compositing the overlay into a captured photo. */
+/** Overlay layers for the current frame, reused for live draw and photo burn-in. */
 export type FrameSnapshot = {
-  live: Landmark[] | null;
-  others: Landmark[][];
-  jointErrors: Record<string, number> | null;
+  ghosts: OverlayGhost[];
+  people: OverlayPerson[];
 };
 
 type Props = {
@@ -53,6 +57,19 @@ type Props = {
   onAutoCapture: () => void;
   onReadyChange?: (ready: boolean) => void;
 };
+
+function groupHints(g: GroupMatch | null): string[] {
+  if (!g) return [];
+  let worst = -1;
+  let worstScore = 101;
+  g.perPose.forEach((r, i) => {
+    if (g.assigned[i] != null && r.score < worstScore) {
+      worstScore = r.score;
+      worst = i;
+    }
+  });
+  return worst >= 0 ? g.perPose[worst].hints : [];
+}
 
 export function usePoseLoop(props: Props): void {
   const latest = useRef(props);
@@ -83,11 +100,23 @@ export function usePoseLoop(props: Props): void {
     let raf = 0;
     let busy = false;
     let lastTs = 0;
-    let liveLandmarks: Landmark[] | null = null;
-    let others: Landmark[][] = [];
+    let primary: Landmark[] | null = null;
+    let people: Landmark[][] = [];
     let match: MatchResult | null = null;
+    let group: GroupMatch | null = null;
     let readySince: number | null = null;
     let prevReady = false;
+
+    // templatePoses() allocates for v1 templates; cache per template identity.
+    let cachedTpl: Template | null = null;
+    let cachedPoses: TemplatePose[] = [];
+    const posesFor = (t: Template): TemplatePose[] => {
+      if (t !== cachedTpl) {
+        cachedTpl = t;
+        cachedPoses = templatePoses(t);
+      }
+      return cachedPoses;
+    };
 
     let frameCount = 0;
     let fpsWindowStart = performance.now();
@@ -102,18 +131,30 @@ export function usePoseLoop(props: Props): void {
       lastTs = ts;
       try {
         const res = await engine.detect(video, ts);
-        others = res.extra ?? [];
+        const extra = res.extra ?? [];
         if (res.landmarks) {
-          liveLandmarks = filter.apply(res.landmarks, now);
+          primary = filter.apply(res.landmarks, now);
+          people = [primary, ...extra];
           const tpl = latest.current.templateRef.current;
           const s = latest.current.settingsRef.current;
-          match =
-            tpl && s
-              ? matchPose(liveLandmarks, tpl, { readyScore: s.readyScore, mirror: s.mirror })
-              : null;
+          if (tpl && s) {
+            const opts = { readyScore: s.readyScore, mirror: s.mirror };
+            if (isGroupTemplate(tpl)) {
+              group = matchGroup(people, tpl, opts);
+              match = null;
+            } else {
+              match = matchPose(primary, posesFor(tpl)[0].landmarks, opts);
+              group = null;
+            }
+          } else {
+            match = null;
+            group = null;
+          }
         } else {
-          liveLandmarks = null;
+          primary = null;
+          people = [];
           match = null;
+          group = null;
           filter.reset();
         }
       } catch {
@@ -131,6 +172,58 @@ export function usePoseLoop(props: Props): void {
       }
     };
 
+    const buildModel = (): FrameSnapshot => {
+      const tpl = latest.current.templateRef.current;
+      if (!people.length) return { ghosts: [], people: [] };
+
+      // No group match running: primary person bright, everyone else dim.
+      const soloPeople = (): OverlayPerson[] =>
+        people.map((lm, i) => ({
+          landmarks: lm,
+          jointErrors: i === 0 ? (match?.jointErrors ?? null) : null,
+          dim: i !== 0,
+        }));
+
+      if (!group) {
+        if (!tpl || !primary) return { ghosts: [], people: soloPeople() };
+        const poses = posesFor(tpl);
+        return {
+          ghosts: [
+            {
+              target: poses[0].landmarks,
+              anchor: primary,
+              jointErrors: match?.jointErrors ?? null,
+              silhouette: latest.current.silhouetteRef?.current ?? null,
+            },
+          ],
+          people: soloPeople(),
+        };
+      }
+
+      const g = group;
+      const poses = posesFor(tpl!);
+      const ghosts: OverlayGhost[] = [];
+      poses.forEach((p, i) => {
+        const li = g.assigned[i];
+        if (li == null) return;
+        ghosts.push({
+          target: p.landmarks,
+          anchor: people[li],
+          jointErrors: g.perPose[i].jointErrors,
+          silhouette: null,
+        });
+      });
+      const overlayPeople: OverlayPerson[] = people.map((lm, i) => {
+        const slot = g.assigned.indexOf(i);
+        return {
+          landmarks: lm,
+          jointErrors: slot >= 0 ? g.perPose[slot].jointErrors : null,
+          dim: slot < 0,
+        };
+      });
+      return { ghosts, people: overlayPeople };
+    };
+
     const render = () => {
       if (stopped) return;
       void infer();
@@ -145,31 +238,23 @@ export function usePoseLoop(props: Props): void {
       const vh = video.videoHeight || h;
       const project = makeProjection(coverCrop(vw, vh, w, h), vw, vh, w, h);
 
+      const model = buildModel();
       drawOverlay(ctx, {
         w,
         h,
         mirror: s?.mirror ?? false,
         project,
-        live: liveLandmarks,
-        others,
-        template: latest.current.templateRef.current,
-        jointErrors: match?.jointErrors ?? null,
+        ghosts: model.ghosts,
+        people: model.people,
         showGrid: s?.showGrid ?? false,
-        silhouette: latest.current.silhouetteRef?.current ?? null,
         ghostStyle: s?.ghostStyle ?? 'both',
         level: latest.current.levelRef?.current ?? null,
       });
 
-      // Only kept for photo burn-in; skip the per-frame allocation otherwise.
-      if (latest.current.frameRef && s?.burnOverlay) {
-        latest.current.frameRef.current = {
-          live: liveLandmarks,
-          others,
-          jointErrors: match?.jointErrors ?? null,
-        };
-      }
+      // Only kept for photo burn-in.
+      if (latest.current.frameRef && s?.burnOverlay) latest.current.frameRef.current = model;
 
-      const readyNow = match?.ready ?? false;
+      const readyNow = match?.ready ?? group?.ready ?? false;
       if (readyNow !== prevReady) {
         prevReady = readyNow;
         latest.current.onReadyChange?.(readyNow);
@@ -179,14 +264,17 @@ export function usePoseLoop(props: Props): void {
       if (now - lastStatPush > 150) {
         lastStatPush = now;
         latest.current.onStats({
-          score: match?.score ?? 0,
-          hints: match?.hints ?? [],
+          score: match?.score ?? group?.score ?? 0,
+          perScore: group
+            ? group.perPose.map((r, i) => (group!.assigned[i] == null ? -1 : r.score))
+            : [],
+          hints: match?.hints ?? groupHints(group),
           ready: readyNow,
           fps,
           mode: engine.mode,
         });
 
-        if (s?.autoShutter && match?.ready) {
+        if (s?.autoShutter && readyNow) {
           readySince ??= now;
           if (now - readySince > 700) {
             readySince = null;
