@@ -23,7 +23,7 @@ import {
 import { extractPoses } from './reference/importImage';
 import { POSE_BANK, bankPoseToTemplate, type BankPose, type SceneCategory } from './data/poseBank';
 import { suggestPoses } from './data/suggest';
-import { classifyScene, preloadClassifier } from './scene/classifier';
+import { classifyScene, preloadClassifier, SceneVoter } from './scene/classifier';
 import { renderSkeletonThumb } from './overlay/thumb';
 import { Cues } from './audio/cues';
 import { TemplateSheet } from './ui/TemplateSheet';
@@ -133,11 +133,14 @@ export function App() {
 
   useEffect(() => {
     if (!autoScene || phase !== 'live') return;
+    const voter = new SceneVoter();
+    setDetectedScene(null);
+    setSceneCat(null);
     let stopped = false;
     const tick = async () => {
       if (stopped || !videoRef.current) return;
       try {
-        const c = await classifyScene(videoRef.current);
+        const c = await classifyScene(videoRef.current, voter);
         if (!stopped && c) {
           setDetectedScene(c);
           setSceneCat(c);
