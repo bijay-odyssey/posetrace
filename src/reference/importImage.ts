@@ -1,4 +1,5 @@
-import { detectImage, initImageLandmarker } from '../pose/runLandmarker';
+import { bbox } from '../match/normalize';
+import { detectImage, initImageLandmarker, type MaskData } from '../pose/runLandmarker';
 import type { Landmark, Silhouette, World } from '../pose/types';
 
 let imageLandmarker: Awaited<ReturnType<typeof initImageLandmarker>> | null = null;
@@ -23,7 +24,7 @@ async function makeThumb(bitmap: ImageBitmap, maxSize: number): Promise<string> 
 }
 
 /** Turn the pose segmentation mask into a cropped, translucent white cut-out. */
-function buildSilhouette(mask: { data: Float32Array; width: number; height: number }): Silhouette | undefined {
+function buildSilhouette(mask: MaskData): Silhouette | undefined {
   const { data, width, height } = mask;
   let minX = width;
   let minY = height;
@@ -81,25 +82,35 @@ function buildSilhouette(mask: { data: Float32Array; width: number; height: numb
 
 export type ExtractedPose = {
   landmarks: Landmark[];
-  thumb: string;
   world?: World[];
   silhouette?: Silhouette;
 };
 
+export type Extraction = {
+  /** People found, ordered left-to-right by bounding-box centre. */
+  people: ExtractedPose[];
+  /** JPEG data URL of the source photo. */
+  thumb: string;
+};
+
 /** Run pose estimation on an uploaded reference photo. Returns null if no person. */
-export async function extractPose(file: File): Promise<ExtractedPose | null> {
+export async function extractPoses(file: File): Promise<Extraction | null> {
   const lm = await getLandmarker();
   const bitmap = await createImageBitmap(file);
   try {
-    const result = detectImage(lm, bitmap);
+    const found = detectImage(lm, bitmap);
     const thumb = await makeThumb(bitmap, 160);
-    if (!result.landmarks) return null;
-    return {
-      landmarks: result.landmarks,
-      thumb,
-      world: result.worldLandmarks ?? undefined,
-      silhouette: result.mask ? buildSilhouette(result.mask) : undefined,
-    };
+    if (found.length === 0) return null;
+    const people = found
+      .map((p) => ({
+        landmarks: p.landmarks,
+        world: p.world ?? undefined,
+        silhouette: p.mask ? buildSilhouette(p.mask) : undefined,
+        cx: bbox(p.landmarks).cx,
+      }))
+      .sort((a, b) => a.cx - b.cx)
+      .map(({ cx: _cx, ...pose }) => pose);
+    return { people, thumb };
   } finally {
     bitmap.close();
   }

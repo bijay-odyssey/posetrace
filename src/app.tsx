@@ -20,7 +20,7 @@ import {
   newTemplate,
   saveTemplate,
 } from './store/templates';
-import { extractPose } from './reference/importImage';
+import { extractPoses } from './reference/importImage';
 import { POSE_BANK, bankPoseToTemplate, type BankPose, type SceneCategory } from './data/poseBank';
 import { suggestPoses } from './data/suggest';
 import { classifyScene, preloadClassifier } from './scene/classifier';
@@ -68,7 +68,14 @@ export function App() {
 
   const frameRef = useRef<FrameSnapshot | null>(null);
 
-  const [stats, setStats] = useState<LoopStats>({ score: 0, hints: [], ready: false, fps: 0, mode: '' });
+  const [stats, setStats] = useState<LoopStats>({
+    score: 0,
+    perScore: [],
+    hints: [],
+    ready: false,
+    fps: 0,
+    mode: '',
+  });
   const [sheetOpen, setSheetOpen] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [preview3dOpen, setPreview3dOpen] = useState(false);
@@ -243,12 +250,9 @@ export function App() {
         h: outH,
         mirror: s.mirror,
         project: makeProjection(crop, vW, vH, outW, outH),
-        live: frame.live,
-        others: frame.others,
-        template: templateRef.current,
-        jointErrors: frame.jointErrors,
+        ghosts: frame.ghosts,
+        people: frame.people,
         showGrid: false,
-        silhouette: silhouetteRef.current,
         ghostStyle: s.ghostStyle,
         level: null,
         clear: false,
@@ -264,18 +268,34 @@ export function App() {
     setSheetOpen(false);
     setBusy('Reading pose from photo…');
     try {
-      const res = await extractPose(file);
-      if (!res) {
+      const res = await extractPoses(file);
+      if (!res || res.people.length === 0) {
         setNotice('No person detected in that photo.');
         return;
       }
-      const tpl = newTemplate(file.name.replace(/\.[^.]+$/, ''), res.landmarks, res.thumb, {
-        world: res.world,
-        silhouette: res.silhouette,
-      });
+      const primary = res.people[0];
+      const group = res.people.length > 1;
+      const base = file.name.replace(/\.[^.]+$/, '');
+      const tpl = newTemplate(
+        group ? `${base} (${res.people.length})` : base,
+        primary.landmarks,
+        res.thumb,
+        {
+          world: primary.world,
+          silhouette: primary.silhouette,
+          poses: group
+            ? res.people.map((p) => ({
+                landmarks: p.landmarks,
+                world: p.world,
+                silhouette: p.silhouette,
+              }))
+            : undefined,
+        },
+      );
       await saveTemplate(tpl);
       setTemplates(await listTemplates());
       setActiveTemplate(tpl);
+      if (group) setNotice(`Group template — ${res.people.length} people, lined up left to right.`);
     } catch (e) {
       setNotice(errMessage(e));
     } finally {
@@ -335,7 +355,15 @@ export function App() {
         <div class="hud">
           <div class={`score${stats.ready ? ' ready' : ''}`}>
             <b>{activeTemplate ? stats.score : '–'}</b>
-            <span>{activeTemplate ? (stats.ready ? 'READY' : '% match') : 'no reference'}</span>
+            <span>
+              {activeTemplate
+                ? stats.ready
+                  ? 'READY'
+                  : stats.perScore.length > 1
+                    ? stats.perScore.join(' · ')
+                    : '% match'
+                : 'no reference'}
+            </span>
           </div>
           <div class="hints">
             {notice && <span class="hint">{notice}</span>}

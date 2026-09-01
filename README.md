@@ -39,8 +39,12 @@ phone camera — like the Huawei / Xiaomi "ghost silhouette" pose guide.
   zoom, idles into a slow spin. Built from the photo's metric world landmarks, or
   the flat 2D pose for bank poses. three.js is a lazy chunk, loaded only when
   opened.
-- **Group aware:** up to 3 people are detected; the largest/nearest is the one
-  scored, the others are drawn dimly so friends in frame don't break the match.
+- **Group aware:** up to 3 people are detected. With a single-person reference the
+  largest/nearest is scored and the rest are drawn dimly. Import a photo with
+  several people and it becomes a **group template**: everyone is lined up
+  left-to-right, each person gets their own ghost and score, and the HUD shows
+  the per-person breakdown plus the mean. (Only the primary person is jitter-
+  filtered; group silhouettes fall back to skeletons.)
 - **Burn overlay into photo:** `Options` toggle — the skeleton / silhouette ghost
   is composited into the saved JPEG (grid and level guides never are). When on,
   the photo is cropped to the viewfinder so it lines up.
@@ -94,6 +98,7 @@ phone.
 | Silhouette cut-out from seg mask | `src/reference/importImage.ts` (`buildSilhouette`) |
 | 3D pose preview (lazy three.js) | `src/three/posePreview.ts`, `src/ui/PosePreview3D.tsx` |
 | Multi-person select + draw | `src/pose/runLandmarker.ts` (`primaryIndex`), `src/overlay/draw.ts` |
+| Group templates (multi-person) | `src/data/templatePose.ts`, `src/match/matcher.ts` (`matchGroup`) |
 
 Tuning knobs: `WEIGHTS` / `MAX_ERR` in `src/match/matcher.ts`, colour thresholds
 in `src/overlay/draw.ts`, filter constants in `src/filter/oneEuro.ts`,
@@ -121,8 +126,6 @@ in `src/overlay/draw.ts`, filter constants in `src/filter/oneEuro.ts`,
 
 Tracked as GitHub issues:
 
-- Group *templates* (match several people to a multi-person reference), not just
-  drawing extra skeletons.
 - A real scene model (Places365 converted to TFJS) to replace the ImageNet-label
   heuristic in `src/scene/classifier.ts`.
 

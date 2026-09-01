@@ -66,7 +66,7 @@ export async function initImageLandmarker(o: Omit<InitOpts, 'delegate'>): Promis
     PoseLandmarker.createFromOptions(fileset, {
       baseOptions: { modelAssetPath: o.modelPath, delegate },
       runningMode: 'IMAGE',
-      numPoses: 1,
+      numPoses: 5,
       minPoseDetectionConfidence: 0.4,
       outputSegmentationMasks: true,
     });
@@ -93,25 +93,24 @@ export function detectVideo(
   };
 }
 
-export type ImageDetection = PoseResult & {
-  mask: { data: Float32Array; width: number; height: number } | null;
+export type MaskData = { data: Float32Array; width: number; height: number };
+
+export type ImagePerson = {
+  landmarks: Landmark[];
+  world: World[] | null;
+  mask: MaskData | null;
 };
 
-export function detectImage(lm: PoseLandmarker, src: ImageBitmap): ImageDetection {
+/** Every person detected in a still image, in the model's own order. */
+export function detectImage(lm: PoseLandmarker, src: ImageBitmap): ImagePerson[] {
   const r = lm.detect(src as unknown as ImageBitmap);
-  const people = (r.landmarks ?? []).map(toLandmarks);
-
-  let mask: ImageDetection['mask'] = null;
-  const mp = r.segmentationMasks?.[0];
-  if (mp) {
-    mask = { data: mp.getAsFloat32Array(), width: mp.width, height: mp.height };
-    mp.close();
-  }
-
-  return {
-    landmarks: people[0] ?? null,
-    worldLandmarks: toWorld(r.worldLandmarks?.[0]),
-    extra: [],
-    mask,
-  };
+  return (r.landmarks ?? []).map((lms, i) => {
+    let mask: MaskData | null = null;
+    const mp = r.segmentationMasks?.[i];
+    if (mp) {
+      mask = { data: mp.getAsFloat32Array(), width: mp.width, height: mp.height };
+      mp.close();
+    }
+    return { landmarks: toLandmarks(lms), world: toWorld(r.worldLandmarks?.[i]), mask };
+  });
 }
