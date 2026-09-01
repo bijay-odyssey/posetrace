@@ -1,8 +1,9 @@
 // Optional, on-demand scene detection. MobileNet gives ImageNet-1k labels; we
-// map the scene-bearing ones onto our "shoot type" buckets with weights, vote
-// over a short rolling window, and only switch buckets when a challenger leads
-// clearly and persistently. Still a heuristic - ImageNet has no class for e.g.
-// a staircase, so `stairs` only ever comes from the manual chip.
+// map the scene-bearing ones onto our "shoot type" buckets with weights, smooth
+// over the last few polls, and only switch buckets when a challenger both leads
+// the smoothed mean and is corroborated by consecutive individual polls. Still a
+// heuristic - ImageNet has no class for e.g. a staircase, so `stairs` only ever
+// comes from the manual chip.
 import type { SceneCategory } from '../data/poseBank';
 
 type Prediction = { className: string; probability: number };
@@ -126,7 +127,7 @@ const SYNSETS: Array<{ kw: string; w: Weights }> = [
   { kw: 'file cabinet', w: { indoor: 0.5 } },
   { kw: 'refrigerator', w: { indoor: 0.6 } },
   { kw: 'dishwasher', w: { indoor: 0.6 } },
-  { kw: 'washer', w: { indoor: 0.5 } },
+  { kw: 'automatic washer', w: { indoor: 0.5 } },
   { kw: 'stove', w: { indoor: 0.6 } },
   { kw: 'microwave', w: { indoor: 0.5 } },
   { kw: 'toaster', w: { indoor: 0.4 } },
@@ -139,29 +140,17 @@ const SYNSETS: Array<{ kw: string; w: Weights }> = [
   { kw: 'sliding door', w: { indoor: 0.4 } },
   { kw: 'radiator', w: { indoor: 0.4 } },
   { kw: 'table lamp', w: { indoor: 0.4 } },
-  { kw: 'four poster', w: { indoor: 0.6 } },
   { kw: 'crib', w: { indoor: 0.4 } },
   { kw: 'altar', w: { indoor: 0.4, urban: 0.2 } },
   { kw: 'pew', w: { indoor: 0.4, urban: 0.3 } },
   { kw: 'throne', w: { indoor: 0.4, urban: 0.2 } },
 ];
 
-const WINDOW = 4;
-const MIN_SCORE = 0.15;
-const SWITCH_MARGIN = 1.3;
-const CONFIRM = 2;
-
-let history: Array<Map<SceneCategory, number>> = [];
-let reported: SceneCategory | null = null;
-let challenger: SceneCategory | null = null;
-let challengerStreak = 0;
-
-export function resetSceneHistory(): void {
-  history = [];
-  reported = null;
-  challenger = null;
-  challengerStreak = 0;
-}
+const WINDOW = 4; // polls kept for the smoothed mean (~10 s at one poll / 2.5 s)
+const MIN_SCORE = 0.15; // window-mean floor for a bucket to be reportable
+const FRAME_FLOOR = 0.1; // this poll's own top bucket must reach this to count
+const SWITCH_MARGIN = 1.3; // challenger must beat the held bucket by 30 %
+const CONFIRM = 2; // consecutive corroborating polls before switching (~5 s)
 
 function scoreFrame(preds: Prediction[]): Map<SceneCategory, number> {
   const frame = new Map<SceneCategory, number>();
@@ -177,44 +166,81 @@ function scoreFrame(preds: Prediction[]): Map<SceneCategory, number> {
   return frame;
 }
 
-export async function classifyScene(video: HTMLVideoElement): Promise<SceneCategory | null> {
-  if (!video.videoWidth) return reported;
+function topBucket(scores: Map<SceneCategory, number>): { bucket: SceneCategory | null; score: number } {
+  let bucket: SceneCategory | null = null;
+  let score = 0;
+  for (const [b, s] of scores) {
+    if (s > score) {
+      score = s;
+      bucket = b;
+    }
+  }
+  return { bucket, score };
+}
 
+/**
+ * Turns a stream of MobileNet classifications into a stable scene bucket. Owned
+ * by whoever is polling (one per `Auto` session) so there is no shared state to
+ * reset and an in-flight poll from a previous session can't leak in.
+ */
+export class SceneVoter {
+  private history: Array<Map<SceneCategory, number>> = [];
+  private reported: SceneCategory | null = null;
+  private challenger: SceneCategory | null = null;
+  private streak = 0;
+
+  get current(): SceneCategory | null {
+    return this.reported;
+  }
+
+  push(preds: Prediction[]): SceneCategory | null {
+    const frame = scoreFrame(preds);
+    this.history.push(frame);
+    if (this.history.length > WINDOW) this.history.shift();
+
+    const mean = new Map<SceneCategory, number>();
+    for (const m of this.history) {
+      for (const [b, s] of m) mean.set(b, (mean.get(b) ?? 0) + s);
+    }
+    for (const [b, s] of mean) mean.set(b, s / this.history.length);
+
+    const smoothed = topBucket(mean);
+    const instant = topBucket(frame);
+
+    // The streak only advances when THIS poll's own leader corroborates the
+    // smoothed leader, so a single stale frame in the window can't drive a switch.
+    const corroborates =
+      smoothed.bucket != null &&
+      smoothed.score >= MIN_SCORE &&
+      instant.bucket === smoothed.bucket &&
+      instant.score >= FRAME_FLOOR &&
+      smoothed.bucket !== this.reported;
+
+    if (!corroborates) {
+      this.challenger = null;
+      this.streak = 0;
+      return this.reported;
+    }
+
+    this.streak = smoothed.bucket === this.challenger ? this.streak + 1 : 1;
+    this.challenger = smoothed.bucket;
+
+    const held = this.reported ? (mean.get(this.reported) ?? 0) : 0;
+    const clearLead = this.reported == null || smoothed.score > held * SWITCH_MARGIN;
+    if (clearLead && this.streak >= CONFIRM) {
+      this.reported = smoothed.bucket;
+      this.challenger = null;
+      this.streak = 0;
+    }
+    return this.reported;
+  }
+}
+
+export async function classifyScene(
+  video: HTMLVideoElement,
+  voter: SceneVoter,
+): Promise<SceneCategory | null> {
+  if (!video.videoWidth) return voter.current;
   const model = await preloadClassifier();
-  history.push(scoreFrame(await model.classify(video, 8)));
-  if (history.length > WINDOW) history.shift();
-
-  const summed = new Map<SceneCategory, number>();
-  for (const m of history) {
-    for (const [b, s] of m) summed.set(b, (summed.get(b) ?? 0) + s);
-  }
-
-  let leader: SceneCategory | null = null;
-  let leaderScore = 0;
-  for (const [b, s] of summed) {
-    if (s > leaderScore) {
-      leaderScore = s;
-      leader = b;
-    }
-  }
-
-  if (!leader || leaderScore < MIN_SCORE || leader === reported) {
-    if (leader === reported) {
-      challenger = null;
-      challengerStreak = 0;
-    }
-    return reported;
-  }
-
-  challengerStreak = leader === challenger ? challengerStreak + 1 : 1;
-  challenger = leader;
-
-  const clearLead = reported == null || leaderScore > (summed.get(reported) ?? 0) * SWITCH_MARGIN;
-  const need = reported == null ? 1 : CONFIRM;
-  if (clearLead && challengerStreak >= need) {
-    reported = leader;
-    challenger = null;
-    challengerStreak = 0;
-  }
-  return reported;
+  return voter.push(await model.classify(video, 8));
 }

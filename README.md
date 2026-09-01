@@ -21,9 +21,10 @@ phone camera — like the Huawei / Xiaomi "ghost silhouette" pose guide.
   shoot type. Tap a scene chip (Portrait / Street / Beach / Stairs / …) to reorder
   suggestions, tap a thumbnail to load it as the ghost.
 - **Auto scene detect** (`Auto` chip): lazy-loads TensorFlow.js MobileNet, maps
-  the scene-bearing ImageNet-1k labels onto those buckets with weights, votes over
-  a rolling window, and only switches when a challenger leads clearly. Still a
-  heuristic — ImageNet has no class for a staircase, so `Stairs` stays manual.
+  the scene-bearing ImageNet-1k labels onto those buckets with weights, smooths
+  over the last few polls, and only switches when a challenger leads the mean
+  *and* is corroborated by consecutive polls (~5 s). Still a heuristic — ImageNet
+  has no class for a staircase, so `Stairs` stays manual.
 - **Level guide:** device-tilt bar in the centre, green when the phone is level
   (needs the motion-sensor permission prompt on iOS).
 - **Audio cue:** rising chime when the pose locks in; click on capture. (iOS web
