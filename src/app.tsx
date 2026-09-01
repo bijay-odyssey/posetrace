@@ -23,7 +23,7 @@ import {
 import { extractPoses } from './reference/importImage';
 import { POSE_BANK, bankPoseToTemplate, type BankPose, type SceneCategory } from './data/poseBank';
 import { suggestPoses } from './data/suggest';
-import { classifyScene, preloadClassifier } from './scene/classifier';
+import { classifyScene, preloadClassifier, resetSceneHistory } from './scene/classifier';
 import { renderSkeletonThumb } from './overlay/thumb';
 import { Cues } from './audio/cues';
 import { TemplateSheet } from './ui/TemplateSheet';
@@ -133,6 +133,7 @@ export function App() {
 
   useEffect(() => {
     if (!autoScene || phase !== 'live') return;
+    resetSceneHistory();
     let stopped = false;
     const tick = async () => {
       if (stopped || !videoRef.current) return;

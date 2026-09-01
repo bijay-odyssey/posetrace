@@ -20,8 +20,10 @@ phone camera — like the Huawei / Xiaomi "ghost silhouette" pose guide.
 - **Pose bank + suggestions** (`✦` button): 10 built-in poses, each tagged by
   shoot type. Tap a scene chip (Portrait / Street / Beach / Stairs / …) to reorder
   suggestions, tap a thumbnail to load it as the ghost.
-- **Auto scene detect** (`Auto` chip): lazy-loads TensorFlow.js MobileNet and maps
-  its ImageNet guesses onto those buckets. Heuristic — a hint, not ground truth.
+- **Auto scene detect** (`Auto` chip): lazy-loads TensorFlow.js MobileNet, maps
+  the scene-bearing ImageNet-1k labels onto those buckets with weights, votes over
+  a rolling window, and only switches when a challenger leads clearly. Still a
+  heuristic — ImageNet has no class for a staircase, so `Stairs` stays manual.
 - **Level guide:** device-tilt bar in the centre, green when the phone is level
   (needs the motion-sensor permission prompt on iOS).
 - **Audio cue:** rising chime when the pose locks in; click on capture. (iOS web
@@ -105,8 +107,9 @@ phone.
 
 Tuning knobs: `WEIGHTS` / `MAX_ERR` in `src/match/matcher.ts`, colour thresholds
 in `src/overlay/draw.ts`, filter constants in `src/filter/oneEuro.ts`,
-`readyScore` in `src/app.tsx` (`DEFAULT_SETTINGS`), scene-label rules in
-`src/scene/classifier.ts` (`RULES`), pose coordinates in `src/data/poseBank.ts`.
+`readyScore` in `src/app.tsx` (`DEFAULT_SETTINGS`), scene weights in
+`src/scene/classifier.ts` (`SYNSETS` / `WINDOW` / `SWITCH_MARGIN`), pose
+coordinates in `src/data/poseBank.ts`.
 
 ## Known iOS / PWA limits
 
@@ -127,10 +130,9 @@ in `src/overlay/draw.ts`, filter constants in `src/filter/oneEuro.ts`,
 
 ## Roadmap
 
-Tracked as GitHub issues:
-
-- A real scene model (Places365 converted to TFJS) to replace the ImageNet-label
-  heuristic in `src/scene/classifier.ts`.
+Auto scene detect is still an ImageNet-1k heuristic. A real scene model
+(Places365) would need a one-time offline Caffe/PyTorch → TF.js conversion;
+there's no ready-made browser build to drop in. Tracked in issue #4.
 
 ## Credits (all Apache-2.0 / MIT)
 
