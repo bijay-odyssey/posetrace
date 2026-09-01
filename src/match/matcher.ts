@@ -72,19 +72,21 @@ const emptyResult = (): MatchResult => ({
 });
 
 export type GroupMatch = {
-  /** One result per template pose, in template order. */
+  /** One result per template pose, in template order (unfilled slots are empty). */
   perPose: MatchResult[];
   /** Index into `livePeople` assigned to each template pose (null if unfilled). */
   assigned: Array<number | null>;
-  /** Mean of the per-pose scores. */
+  /** How many template slots got a live person. */
+  filled: number;
+  /** Mean score over the filled slots only. */
   score: number;
   ready: boolean;
 };
 
 /**
- * Match every person in a group template. People are lined up left-to-right by
- * bounding-box centre and paired by position, which is robust for the usual
- * side-by-side group shot.
+ * Match every person in a group template. Each template slot takes the nearest
+ * still-unclaimed live person by bounding-box centre (extremes first), which
+ * stays correct when the live head-count changes mid-session.
  */
 export function matchGroup(
   livePeople: Landmark[][],
@@ -92,25 +94,37 @@ export function matchGroup(
   opts: MatchOptions,
 ): GroupMatch {
   const poses = templatePoses(template);
-  const byX = <T extends { cx: number }>(arr: T[]): T[] => arr.slice().sort((a, b) => a.cx - b.cx);
-
-  const tSlots = byX(poses.map((p, i) => ({ i, cx: bbox(p.landmarks).cx })));
-  const lSlots = byX(livePeople.map((p, i) => ({ i, cx: bbox(p).cx })));
+  const tCent = poses.map((p) => bbox(p.landmarks).cx);
+  const lCent = livePeople.map((p) => bbox(p).cx);
 
   const perPose: MatchResult[] = new Array(poses.length);
   const assigned: Array<number | null> = new Array(poses.length).fill(null);
+  const used = new Set<number>();
 
-  tSlots.forEach((slot, rank) => {
-    const live = lSlots[rank];
-    if (live) {
-      assigned[slot.i] = live.i;
-      perPose[slot.i] = matchPose(livePeople[live.i], poses[slot.i].landmarks, opts);
+  const order = poses.map((_, i) => i).sort((a, b) => tCent[a] - tCent[b]);
+  for (const ti of order) {
+    let best = -1;
+    let bestD = Infinity;
+    lCent.forEach((lx, li) => {
+      if (used.has(li)) return;
+      const d = Math.abs(lx - tCent[ti]);
+      if (d < bestD) {
+        bestD = d;
+        best = li;
+      }
+    });
+    if (best >= 0) {
+      used.add(best);
+      assigned[ti] = best;
+      perPose[ti] = matchPose(livePeople[best], poses[ti].landmarks, opts);
     } else {
-      perPose[slot.i] = emptyResult();
+      perPose[ti] = emptyResult();
     }
-  });
+  }
 
-  const score = Math.round(perPose.reduce((s, r) => s + r.score, 0) / (poses.length || 1));
-  const ready = assigned.every((a) => a !== null) && perPose.every((r) => r.ready);
-  return { perPose, assigned, score, ready };
+  const filled = assigned.reduce<number>((n, a) => (a === null ? n : n + 1), 0);
+  const sum = assigned.reduce<number>((s, a, i) => (a === null ? s : s + perPose[i].score), 0);
+  const score = filled > 0 ? Math.round(sum / filled) : 0;
+  const ready = filled === poses.length && assigned.every((a, i) => a === null || perPose[i].ready);
+  return { perPose, assigned, filled, score, ready };
 }

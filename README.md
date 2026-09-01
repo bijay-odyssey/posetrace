@@ -41,10 +41,13 @@ phone camera — like the Huawei / Xiaomi "ghost silhouette" pose guide.
   opened.
 - **Group aware:** up to 3 people are detected. With a single-person reference the
   largest/nearest is scored and the rest are drawn dimly. Import a photo with
-  several people and it becomes a **group template**: everyone is lined up
-  left-to-right, each person gets their own ghost and score, and the HUD shows
-  the per-person breakdown plus the mean. (Only the primary person is jitter-
-  filtered; group silhouettes fall back to skeletons.)
+  several people and it becomes a **group template**: each template slot takes the
+  nearest live person, everyone gets their own ghost and score, and the HUD shows
+  the per-person breakdown (`–` for a missing person) plus the mean over whoever's
+  present. READY needs every slot filled. Import drops detections much smaller than
+  the biggest one (posters, reflections), so group members should be at a similar
+  distance. Only the primary person is jitter-filtered; group ghosts are skeletons
+  (no per-person silhouette).
 - **Burn overlay into photo:** `Options` toggle — the skeleton / silhouette ghost
   is composited into the saved JPEG (grid and level guides never are). When on,
   the photo is cropped to the viewfinder so it lines up.
@@ -117,8 +120,8 @@ in `src/overlay/draw.ts`, filter constants in `src/filter/oneEuro.ts`,
   0.4 Hz and is off by default.
 - `DeviceOrientation` (level guide) needs a permission prompt on iOS, triggered
   from the "Start camera" tap.
-- `numPoses` is 3 (group support); drop it to 1 in `src/pose/runLandmarker.ts`
-  if inference is too slow on an older device.
+- `numPoses` is 3 for both live and image (group cap); drop it in
+  `src/pose/runLandmarker.ts` if inference is too slow on an older device.
 - IMAGE-mode world landmarks (used by the 3D preview) are approximate; the panel
   labels itself "flat" when a pose has none.
 

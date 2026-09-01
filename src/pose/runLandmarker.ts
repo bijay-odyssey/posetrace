@@ -66,8 +66,9 @@ export async function initImageLandmarker(o: Omit<InitOpts, 'delegate'>): Promis
     PoseLandmarker.createFromOptions(fileset, {
       baseOptions: { modelAssetPath: o.modelPath, delegate },
       runningMode: 'IMAGE',
-      numPoses: 5,
-      minPoseDetectionConfidence: 0.4,
+      // Matches the live numPoses so a group template can actually fill every slot.
+      numPoses: 3,
+      minPoseDetectionConfidence: 0.5,
       outputSegmentationMasks: true,
     });
   try {

@@ -183,11 +183,13 @@ export function drawOverlay(ctx: CanvasRenderingContext2D, input: OverlayInput):
     }
   }
 
+  // Dim bystanders first so the scored subject stays on top.
   for (const person of people) {
-    if (person.dim) {
-      drawSkeleton(ctx, person.landmarks, project, () => 'rgba(255,255,255,0.22)', 3);
-      continue;
-    }
+    if (!person.dim) continue;
+    drawSkeleton(ctx, person.landmarks, project, () => 'rgba(255,255,255,0.22)', 3);
+  }
+  for (const person of people) {
+    if (person.dim) continue;
     drawSkeleton(ctx, person.landmarks, project, (a, b) => colourForBone(a, b, person.jointErrors), 4);
     drawJoints(ctx, person.landmarks, project, CYAN, 3.5);
   }

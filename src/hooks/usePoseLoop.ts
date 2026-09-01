@@ -1,13 +1,18 @@
 import { useEffect, useRef } from 'preact/hooks';
-import { templatePoses } from '../data/templatePose';
+import { isGroupTemplate, templatePoses } from '../data/templatePose';
 import { PoseFilter } from '../filter/oneEuro';
 import { type GroupMatch, matchGroup, matchPose } from '../match/matcher';
 import { coverCrop, makeProjection } from '../overlay/coverCrop';
-import { drawOverlay, type OverlayGhost, type OverlayPerson } from '../overlay/draw';
+import {
+  drawOverlay,
+  type OverlayGhost,
+  type OverlayPerson,
+  type SilhouetteHandle,
+} from '../overlay/draw';
 import type { PoseEngine } from '../pose/poseClient';
-import type { Landmark, MatchResult, Template } from '../pose/types';
+import type { Landmark, MatchResult, Template, TemplatePose } from '../pose/types';
 
-export type { SilhouetteHandle } from '../overlay/draw';
+export type { SilhouetteHandle };
 
 export type LoopStats = {
   score: number;
@@ -46,7 +51,7 @@ type Props = {
   templateRef: Ref<Template>;
   settingsRef: Ref<LoopSettings>;
   levelRef?: Ref<{ roll: number }>;
-  silhouetteRef?: Ref<import('../overlay/draw').SilhouetteHandle>;
+  silhouetteRef?: Ref<SilhouetteHandle>;
   frameRef?: Ref<FrameSnapshot>;
   onStats: (s: LoopStats) => void;
   onAutoCapture: () => void;
@@ -102,6 +107,17 @@ export function usePoseLoop(props: Props): void {
     let readySince: number | null = null;
     let prevReady = false;
 
+    // templatePoses() allocates for v1 templates; cache per template identity.
+    let cachedTpl: Template | null = null;
+    let cachedPoses: TemplatePose[] = [];
+    const posesFor = (t: Template): TemplatePose[] => {
+      if (t !== cachedTpl) {
+        cachedTpl = t;
+        cachedPoses = templatePoses(t);
+      }
+      return cachedPoses;
+    };
+
     let frameCount = 0;
     let fpsWindowStart = performance.now();
     let fps = 0;
@@ -123,11 +139,11 @@ export function usePoseLoop(props: Props): void {
           const s = latest.current.settingsRef.current;
           if (tpl && s) {
             const opts = { readyScore: s.readyScore, mirror: s.mirror };
-            if (templatePoses(tpl).length > 1) {
+            if (isGroupTemplate(tpl)) {
               group = matchGroup(people, tpl, opts);
               match = null;
             } else {
-              match = matchPose(primary, templatePoses(tpl)[0].landmarks, opts);
+              match = matchPose(primary, posesFor(tpl)[0].landmarks, opts);
               group = null;
             }
           } else {
@@ -160,53 +176,52 @@ export function usePoseLoop(props: Props): void {
       const tpl = latest.current.templateRef.current;
       if (!people.length) return { ghosts: [], people: [] };
 
-      const bystanders = (matchedIdx: (i: number) => boolean): OverlayPerson[] =>
-        people.map((lm, i) => ({ landmarks: lm, jointErrors: null, dim: !matchedIdx(i) }));
+      // No group match running: primary person bright, everyone else dim.
+      const soloPeople = (): OverlayPerson[] =>
+        people.map((lm, i) => ({
+          landmarks: lm,
+          jointErrors: i === 0 ? (match?.jointErrors ?? null) : null,
+          dim: i !== 0,
+        }));
 
-      if (!tpl) return { ghosts: [], people: bystanders((i) => i < 0) };
-
-      const poses = templatePoses(tpl);
-
-      if (group) {
-        const g = group;
-        const ghosts: OverlayGhost[] = [];
-        poses.forEach((p, i) => {
-          const li = g.assigned[i];
-          if (li == null) return;
-          ghosts.push({
-            target: p.landmarks,
-            anchor: people[li],
-            jointErrors: g.perPose[i].jointErrors,
-            silhouette: null,
-          });
-        });
-        const overlayPeople: OverlayPerson[] = people.map((lm, i) => {
-          const slot = g.assigned.indexOf(i);
-          return {
-            landmarks: lm,
-            jointErrors: slot >= 0 ? g.perPose[slot].jointErrors : null,
-            dim: slot < 0,
-          };
-        });
-        return { ghosts, people: overlayPeople };
+      if (!group) {
+        if (!tpl || !primary) return { ghosts: [], people: soloPeople() };
+        const poses = posesFor(tpl);
+        return {
+          ghosts: [
+            {
+              target: poses[0].landmarks,
+              anchor: primary,
+              jointErrors: match?.jointErrors ?? null,
+              silhouette: latest.current.silhouetteRef?.current ?? null,
+            },
+          ],
+          people: soloPeople(),
+        };
       }
 
-      if (!primary) return { ghosts: [], people: bystanders((i) => i < 0) };
-      return {
-        ghosts: [
-          {
-            target: poses[0].landmarks,
-            anchor: primary,
-            jointErrors: match?.jointErrors ?? null,
-            silhouette: latest.current.silhouetteRef?.current ?? null,
-          },
-        ],
-        people: people.map((lm, i) =>
-          i === 0
-            ? { landmarks: lm, jointErrors: match?.jointErrors ?? null }
-            : { landmarks: lm, jointErrors: null, dim: true },
-        ),
-      };
+      const g = group;
+      const poses = posesFor(tpl!);
+      const ghosts: OverlayGhost[] = [];
+      poses.forEach((p, i) => {
+        const li = g.assigned[i];
+        if (li == null) return;
+        ghosts.push({
+          target: p.landmarks,
+          anchor: people[li],
+          jointErrors: g.perPose[i].jointErrors,
+          silhouette: null,
+        });
+      });
+      const overlayPeople: OverlayPerson[] = people.map((lm, i) => {
+        const slot = g.assigned.indexOf(i);
+        return {
+          landmarks: lm,
+          jointErrors: slot >= 0 ? g.perPose[slot].jointErrors : null,
+          dim: slot < 0,
+        };
+      });
+      return { ghosts, people: overlayPeople };
     };
 
     const render = () => {
@@ -250,7 +265,9 @@ export function usePoseLoop(props: Props): void {
         lastStatPush = now;
         latest.current.onStats({
           score: match?.score ?? group?.score ?? 0,
-          perScore: group ? group.perPose.map((r) => r.score) : [],
+          perScore: group
+            ? group.perPose.map((r, i) => (group!.assigned[i] == null ? -1 : r.score))
+            : [],
           hints: match?.hints ?? groupHints(group),
           ready: readyNow,
           fps,

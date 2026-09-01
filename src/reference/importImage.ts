@@ -89,9 +89,14 @@ export type ExtractedPose = {
 export type Extraction = {
   /** People found, ordered left-to-right by bounding-box centre. */
   people: ExtractedPose[];
+  /** Index of the most prominent (largest) person. */
+  primary: number;
   /** JPEG data URL of the source photo. */
   thumb: string;
 };
+
+/** Drop detections much smaller than the biggest one (posters, reflections, passers-by). */
+const MIN_AREA_RATIO = 0.22;
 
 /** Run pose estimation on an uploaded reference photo. Returns null if no person. */
 export async function extractPoses(file: File): Promise<Extraction | null> {
@@ -101,16 +106,34 @@ export async function extractPoses(file: File): Promise<Extraction | null> {
     const found = detectImage(lm, bitmap);
     const thumb = await makeThumb(bitmap, 160);
     if (found.length === 0) return null;
-    const people = found
-      .map((p) => ({
-        landmarks: p.landmarks,
-        world: p.world ?? undefined,
-        silhouette: p.mask ? buildSilhouette(p.mask) : undefined,
-        cx: bbox(p.landmarks).cx,
-      }))
-      .sort((a, b) => a.cx - b.cx)
-      .map(({ cx: _cx, ...pose }) => pose);
-    return { people, thumb };
+
+    const meta = found.map((p) => {
+      const b = bbox(p.landmarks);
+      return { p, cx: b.cx, area: Math.max(b.w * b.h, 1e-6) };
+    });
+    const maxArea = Math.max(...meta.map((m) => m.area));
+    const kept = meta
+      .filter((m) => m.area >= maxArea * MIN_AREA_RATIO)
+      .sort((a, b) => a.cx - b.cx);
+
+    // Silhouettes are only used for single-person ghosts.
+    const single = kept.length === 1;
+    const people: ExtractedPose[] = kept.map((m) => ({
+      landmarks: m.p.landmarks,
+      world: m.p.world ?? undefined,
+      silhouette: single && m.p.mask ? buildSilhouette(m.p.mask) : undefined,
+    }));
+
+    let primary = 0;
+    let biggest = -1;
+    kept.forEach((m, i) => {
+      if (m.area > biggest) {
+        biggest = m.area;
+        primary = i;
+      }
+    });
+
+    return { people, primary, thumb };
   } finally {
     bitmap.close();
   }

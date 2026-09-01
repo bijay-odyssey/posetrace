@@ -273,22 +273,19 @@ export function App() {
         setNotice('No person detected in that photo.');
         return;
       }
-      const primary = res.people[0];
+      const prim = res.people[res.primary];
       const group = res.people.length > 1;
       const base = file.name.replace(/\.[^.]+$/, '');
       const tpl = newTemplate(
         group ? `${base} (${res.people.length})` : base,
-        primary.landmarks,
+        prim.landmarks,
         res.thumb,
         {
-          world: primary.world,
-          silhouette: primary.silhouette,
+          world: prim.world,
+          silhouette: prim.silhouette,
+          // Group ghosts render as skeletons, so per-person silhouettes aren't kept.
           poses: group
-            ? res.people.map((p) => ({
-                landmarks: p.landmarks,
-                world: p.world,
-                silhouette: p.silhouette,
-              }))
+            ? res.people.map((p) => ({ landmarks: p.landmarks, world: p.world }))
             : undefined,
         },
       );
@@ -360,7 +357,7 @@ export function App() {
                 ? stats.ready
                   ? 'READY'
                   : stats.perScore.length > 1
-                    ? stats.perScore.join(' · ')
+                    ? stats.perScore.map((n) => (n < 0 ? '–' : n)).join(' · ')
                     : '% match'
                 : 'no reference'}
             </span>
