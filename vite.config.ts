@@ -1,12 +1,56 @@
-import { defineConfig } from 'vite';
+import { createReadStream, existsSync, statSync } from 'node:fs';
+import { extname, join, normalize } from 'node:path';
+import { defineConfig, type Plugin } from 'vite';
 import preact from '@preact/preset-vite';
 import { VitePWA } from 'vite-plugin-pwa';
 import basicSsl from '@vitejs/plugin-basic-ssl';
+
+const WASM_URL_PREFIX = '/mediapipe/wasm/';
+const WASM_MIME: Record<string, string> = { '.js': 'text/javascript', '.wasm': 'application/wasm' };
+
+/**
+ * @mediapipe/tasks-vision dynamically `import()`s its wasm loader script
+ * relative to the path we give FilesetResolver.forVisionTasks(), which is
+ * `/mediapipe/wasm` (self-hosted for offline PWA use). Vite's dev server
+ * refuses to serve a public-dir file through its module-transform pipeline
+ * when it's the target of an `import()` ("should not be imported from source
+ * code"), so intercept these requests before Vite's own middlewares and hand
+ * back the raw file - same self-hosted asset used in production, just served
+ * without going through Vite's module graph.
+ */
+function serveMediapipeWasmRaw(): Plugin {
+  return {
+    name: 'serve-mediapipe-wasm-raw',
+    apply: 'serve',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const url = req.url ?? '';
+        if (!url.startsWith(WASM_URL_PREFIX)) return next();
+
+        const rel = normalize(decodeURIComponent(url.slice(WASM_URL_PREFIX.length).split('?')[0]));
+        if (rel.startsWith('..')) return next();
+
+        const file = join(server.config.root, 'public', 'mediapipe', 'wasm', rel);
+        if (!existsSync(file) || !statSync(file).isFile()) return next();
+
+        const type = WASM_MIME[extname(file)];
+        if (type) res.setHeader('Content-Type', type);
+        createReadStream(file)
+          .on('error', () => {
+            res.statusCode = 500;
+            res.end();
+          })
+          .pipe(res);
+      });
+    },
+  };
+}
 
 // HTTPS in dev (basicSsl) is required so iOS Safari will grant camera access
 // when you open the LAN URL on a real iPhone.
 export default defineConfig({
   plugins: [
+    serveMediapipeWasmRaw(),
     preact(),
     basicSsl(),
     VitePWA({

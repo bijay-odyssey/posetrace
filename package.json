@@ -26,6 +26,7 @@
   },
   "devDependencies": {
     "@preact/preset-vite": "^2.9.3",
+    "@types/node": "^22.10.2",
     "@types/three": "^0.170.0",
     "@vitejs/plugin-basic-ssl": "^1.2.0",
     "pngjs": "^7.0.0",
