@@ -59,6 +59,19 @@ phone camera — like the Huawei / Xiaomi "ghost silhouette" pose guide.
 
 ## Run it
 
+Quickest path — one script installs dependencies (first run only) and starts
+the dev server:
+
+```bash
+./start.sh        # macOS / Linux / Git Bash
+start.bat         # Windows (double-click, or run from a terminal)
+```
+
+`start.sh build` / `start.bat build` builds the production bundle and serves it
+with `vite preview` instead.
+
+Or run the underlying commands yourself:
+
 ```bash
 npm install          # also downloads the pose model + copies wasm + builds icons
 npm run dev          # https://localhost:5173  (and your LAN IP, HTTPS)
@@ -67,6 +80,9 @@ npm run dev          # https://localhost:5173  (and your LAN IP, HTTPS)
 `npm install` runs `scripts/prepare.mjs`, which needs network once to fetch
 `pose_landmarker_lite.task` (~3 MB) into `public/models/`. Re-run any time with
 `npm run prepare:assets`.
+
+There's only one server to run — the Vite dev server serves the whole app
+(no separate backend).
 
 ### Testing on a real iPhone
 
