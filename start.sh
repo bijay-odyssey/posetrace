@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Installs deps on first run, then starts the PoseTrace dev server (HTTPS,
-# LAN-visible) so you can test it on this machine or on a phone.
+# Syncs deps, then starts the PoseTrace dev server (HTTPS, LAN-visible) so you
+# can test it on this machine or on a phone.
 #   ./start.sh          -> dev server (default)
 #   ./start.sh build    -> production build, served with `vite preview`
 set -e
 cd "$(dirname "$0")"
 
-if [ ! -d node_modules ]; then
-  echo "Installing dependencies (first run only)..."
-  npm install
-fi
+# `npm install` is a fast no-op when node_modules already matches package.json,
+# so always run it rather than trusting a stale directory after a `git pull`.
+echo "Syncing dependencies..."
+npm install
 
 if [ "${1:-}" = "build" ]; then
   echo "Building the production bundle and serving it..."

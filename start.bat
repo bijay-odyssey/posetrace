@@ -1,18 +1,20 @@
 @echo off
 setlocal
-rem Installs deps on first run, then starts the PoseTrace dev server (HTTPS,
-rem LAN-visible) so you can test it on this PC or on a phone.
+rem Syncs deps, then starts the PoseTrace dev server (HTTPS, LAN-visible) so
+rem you can test it on this PC or on a phone.
 rem   start.bat          -> dev server (default)
 rem   start.bat build    -> production build, served with `vite preview`
 cd /d "%~dp0"
 
-if not exist node_modules (
-  echo Installing dependencies (first run only)...
-  call npm install
-  if errorlevel 1 (
-    echo npm install failed.
-    exit /b 1
-  )
+rem `npm install` is a fast no-op when node_modules already matches
+rem package.json, so always run it rather than trusting a stale directory
+rem after a `git pull`.
+echo Syncing dependencies...
+call npm install
+if errorlevel 1 (
+  echo npm install failed.
+  pause
+  exit /b 1
 )
 
 if /i "%~1"=="build" (
@@ -20,9 +22,15 @@ if /i "%~1"=="build" (
   call npm run build
   if errorlevel 1 (
     echo Build failed.
+    pause
     exit /b 1
   )
   call npm run preview
+  if errorlevel 1 (
+    echo.
+    echo vite preview exited with an error.
+    pause
+  )
 ) else (
   echo Starting the PoseTrace dev server...
   echo   - This PC:            https://localhost:5173
@@ -33,6 +41,11 @@ if /i "%~1"=="build" (
   echo Press Ctrl+C to stop.
   echo.
   call npm run dev
+  if errorlevel 1 (
+    echo.
+    echo The dev server exited with an error.
+    pause
+  )
 )
 
 endlocal
