@@ -6,10 +6,10 @@
 //   4. Main thread + CPU
 import * as Comlink from 'comlink';
 import { initVideoLandmarker, detectVideo } from './runLandmarker';
+import { WASM_PATH } from './wasmPath';
 import type { PoseWorkerApi } from './worker';
 import type { PoseResult } from './types';
 
-const WASM_PATH = '/mediapipe/wasm';
 const MODEL_PATH = '/models/pose_landmarker_lite.task';
 
 export interface PoseEngine {
