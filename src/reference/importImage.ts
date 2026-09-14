@@ -1,12 +1,13 @@
 import { bbox } from '../match/normalize';
 import { detectImage, initImageLandmarker, type MaskData } from '../pose/runLandmarker';
+import { WASM_PATH } from '../pose/wasmPath';
 import type { Landmark, Silhouette, World } from '../pose/types';
 
 let imageLandmarker: Awaited<ReturnType<typeof initImageLandmarker>> | null = null;
 
 async function getLandmarker() {
   imageLandmarker ??= await initImageLandmarker({
-    wasmPath: '/mediapipe/wasm',
+    wasmPath: WASM_PATH,
     modelPath: '/models/pose_landmarker_lite.task',
   });
   return imageLandmarker;
