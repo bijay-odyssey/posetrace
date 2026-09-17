@@ -34,6 +34,7 @@ import { ReviewScreen } from './ui/ReviewScreen';
 import type { Template } from './pose/types';
 
 const SEEN_REF_PICKER_KEY = 'posetrace:seenRefPicker';
+const LOADING_HAND_MSG = 'Loading hand model…';
 
 const DEFAULT_SETTINGS: LoopSettings = {
   mirror: false,
@@ -70,10 +71,13 @@ export function App() {
   settingsRef.current = settings;
 
   // Lazily loads the (~8 MB) hand model on first enable; a no-op after that.
+  // `busy` is shared with camera-start/photo-import/scene-model loading, so
+  // only ever set it when nothing else is showing, and only clear it if it's
+  // still ours - otherwise a slower concurrent load's message gets clobbered.
   useEffect(() => {
     if (!engine) return;
     let cancelled = false;
-    if (settings.handTracking) setBusy('Loading hand model…');
+    if (settings.handTracking) setBusy((cur) => cur ?? LOADING_HAND_MSG);
     engine
       .setHandTracking(settings.handTracking)
       .catch((e) => {
@@ -84,7 +88,7 @@ export function App() {
         }
       })
       .finally(() => {
-        if (!cancelled) setBusy(null);
+        if (!cancelled) setBusy((cur) => (cur === LOADING_HAND_MSG ? null : cur));
       });
     return () => {
       cancelled = true;

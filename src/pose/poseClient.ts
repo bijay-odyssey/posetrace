@@ -78,6 +78,7 @@ async function mainThreadEngine(): Promise<PoseEngine> {
   }
 
   let handLm: Awaited<ReturnType<typeof initVideoHandLandmarker>> | null = null;
+  let handLmPromise: ReturnType<typeof initVideoHandLandmarker> | null = null;
   let handTrackingEnabled = false;
 
   return {
@@ -87,15 +88,27 @@ async function mainThreadEngine(): Promise<PoseEngine> {
       const hands: Hand[] = handTrackingEnabled && handLm ? detectHandsVideo(handLm, video, ts) : [];
       return { ...pose, hands };
     },
+    // Concurrent calls share the same in-flight load instead of racing.
     async setHandTracking(enabled) {
       handTrackingEnabled = enabled;
-      if (enabled && !handLm) {
-        handLm = await initVideoHandLandmarker({ wasmPath: WASM_PATH, modelPath: HAND_MODEL_PATH, delegate });
+      if (enabled && !handLm && !handLmPromise) {
+        handLmPromise = initVideoHandLandmarker({ wasmPath: WASM_PATH, modelPath: HAND_MODEL_PATH, delegate }).catch(
+          (e) => {
+            handLmPromise = null;
+            throw e;
+          },
+        );
+      }
+      if (handLmPromise) {
+        handLm = await handLmPromise;
       }
     },
     close() {
       lm.close();
-      handLm?.close();
+      // Close immediately if already loaded; if a load is still in flight,
+      // close it once it resolves so it can't outlive this engine.
+      if (handLm) handLm.close();
+      else handLmPromise?.then((h) => h.close()).catch(() => undefined);
     },
   };
 }

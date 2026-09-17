@@ -14,6 +14,7 @@ export type WorkerInitOpts = InitOpts & { handModelPath: string };
 
 let landmarker: PoseLandmarker | null = null;
 let handLandmarker: HandLandmarker | null = null;
+let handLandmarkerPromise: Promise<HandLandmarker> | null = null;
 let handTrackingEnabled = false;
 let initOpts: WorkerInitOpts | null = null;
 
@@ -23,15 +24,23 @@ const api = {
     landmarker = await initVideoLandmarker(opts);
     return true;
   },
-  /** Lazily loads the hand model on first enable; a no-op cost after that. */
+  /** Lazily loads the hand model on first enable; a no-op cost after that.
+   *  Concurrent calls share the same in-flight load instead of racing. */
   async setHandTracking(enabled: boolean): Promise<void> {
     handTrackingEnabled = enabled;
-    if (enabled && !handLandmarker && initOpts) {
-      handLandmarker = await initVideoHandLandmarker({
-        wasmPath: initOpts.wasmPath,
-        modelPath: initOpts.handModelPath,
-        delegate: initOpts.delegate,
+    if (enabled && !handLandmarker && !handLandmarkerPromise && initOpts) {
+      const opts = initOpts;
+      handLandmarkerPromise = initVideoHandLandmarker({
+        wasmPath: opts.wasmPath,
+        modelPath: opts.handModelPath,
+        delegate: opts.delegate,
+      }).catch((e) => {
+        handLandmarkerPromise = null;
+        throw e;
       });
+    }
+    if (handLandmarkerPromise) {
+      handLandmarker = await handLandmarkerPromise;
     }
   },
   detect(bitmap: ImageBitmap, ts: number): PoseResult {
