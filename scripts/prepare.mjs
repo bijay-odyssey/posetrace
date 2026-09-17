@@ -53,11 +53,13 @@ function copyWasm() {
 const BG_TOP = [17, 18, 26, 255];
 const BG_BOTTOM = [8, 8, 12, 255];
 const INK = [34, 211, 238, 255]; // cyan-400
-const GLOW = [34, 211, 238];
+const GLOW = INK.slice(0, 3);
 const SS = 4;
 
 function makeBuffer(size) {
-  return { size, data: new Uint8ClampedArray(size * size * 4).fill(255) };
+  // No need to pre-fill: drawIcon always calls fillGradient() first, which
+  // unconditionally overwrites every pixel (RGB and alpha) before anything reads it.
+  return { size, data: new Uint8ClampedArray(size * size * 4) };
 }
 
 function setPx(buf, x, y, color) {
@@ -90,7 +92,9 @@ function stampDisc(buf, cx, cy, r, color) {
 }
 
 function stampLine(buf, x0, y0, x1, y1, thick, color) {
-  const steps = Math.ceil(Math.hypot(x1 - x0, y1 - y0) * 2);
+  // Coordinates are already in supersampled space, so one step per unit
+  // distance is already dense relative to `thick` - no extra multiplier needed.
+  const steps = Math.ceil(Math.hypot(x1 - x0, y1 - y0));
   for (let s = 0; s <= steps; s++) {
     const t = s / steps;
     stampDisc(buf, x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, thick, color);
@@ -152,8 +156,10 @@ function drawIcon(size, scale) {
   const ox = (size * SS - box) / 2;
   const oy = (size * SS - box) / 2;
   const P = (nx, ny) => [ox + nx * box, oy + ny * box];
-  const lw = Math.max(2, box * 0.026);
-  const jr = Math.max(2, box * 0.02);
+  // Coordinates/radii here are in supersampled units - floor by SS so the
+  // final downsampled image still gets a real minimum of ~2px, not ~2/SS px.
+  const lw = Math.max(2 * SS, box * 0.026);
+  const jr = Math.max(2 * SS, box * 0.02);
 
   const head = P(0.5, 0.16);
   const neck = P(0.5, 0.3);
@@ -190,9 +196,11 @@ async function genIcons() {
     ['icon-512.png', 512, 0.78],
     ['maskable-512.png', 512, 0.6],
   ];
+  // Always regenerate (fast - no network) so a changed algorithm actually
+  // takes effect on an existing checkout instead of silently keeping stale
+  // gitignored icons from a previous run.
   for (const [name, size, scale] of targets) {
     const file = resolve(dir, name);
-    if (existsSync(file)) continue;
     await savePng(drawIcon(size, scale), file);
     console.log('[prepare] wrote icons/' + name);
   }
