@@ -42,6 +42,7 @@ const DEFAULT_SETTINGS: LoopSettings = {
   readyScore: 82,
   ghostStyle: 'both',
   burnOverlay: false,
+  handTracking: false,
 };
 
 export function App() {
@@ -67,6 +68,28 @@ export function App() {
   const [settings, setSettings] = useState<LoopSettings>(DEFAULT_SETTINGS);
   const settingsRef = useRef<LoopSettings>(settings);
   settingsRef.current = settings;
+
+  // Lazily loads the (~8 MB) hand model on first enable; a no-op after that.
+  useEffect(() => {
+    if (!engine) return;
+    let cancelled = false;
+    if (settings.handTracking) setBusy('Loading hand model…');
+    engine
+      .setHandTracking(settings.handTracking)
+      .catch((e) => {
+        console.error(e);
+        if (!cancelled) {
+          setNotice('Hand tracking failed to load.');
+          setSettings((s) => ({ ...s, handTracking: false }));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setBusy(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [engine, settings.handTracking]);
 
   const frameRef = useRef<FrameSnapshot | null>(null);
 
@@ -279,6 +302,7 @@ export function App() {
         project: makeProjection(crop, vW, vH, outW, outH),
         ghosts: frame.ghosts,
         people: frame.people,
+        hands: frame.hands,
         showGrid: false,
         ghostStyle: s.ghostStyle,
         level: null,

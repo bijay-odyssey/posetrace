@@ -2,6 +2,12 @@ export type Landmark = { x: number; y: number; z: number; visibility: number };
 
 export type World = { x: number; y: number; z: number };
 
+/** 21 hand landmarks (wrist, then 4 joints per finger: thumb, index, middle, ring, pinky). */
+export type Hand = {
+  landmarks: Landmark[];
+  handedness: 'Left' | 'Right';
+};
+
 export type PoseResult = {
   /** Primary subject (largest in frame): 33 landmarks in normalized image
    *  space (0..1), or null if no person found. */
@@ -10,6 +16,8 @@ export type PoseResult = {
   worldLandmarks: World[] | null;
   /** Additional people in frame, for drawing only (not matched). */
   extra: Landmark[][];
+  /** Detected hands, live display only (not matched against a template). */
+  hands: Hand[];
 };
 
 /** A person silhouette (from the pose segmentation mask) stored with a template. */

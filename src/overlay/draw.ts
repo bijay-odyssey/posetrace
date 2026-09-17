@@ -1,6 +1,7 @@
+import { HAND_CONNECTIONS } from '../pose/handLandmarks';
 import { CONNECTIONS, CONNECTION_JOINT, LM, connKey } from '../pose/landmarks';
 import { dist, mid, normalizePose } from '../match/normalize';
-import type { Landmark } from '../pose/types';
+import type { Hand, Landmark } from '../pose/types';
 
 export type SilhouetteHandle = {
   img: CanvasImageSource;
@@ -32,6 +33,8 @@ export type OverlayInput = {
   project: (nx: number, ny: number) => [number, number];
   ghosts: OverlayGhost[];
   people: OverlayPerson[];
+  /** Live display only - not matched against a template. */
+  hands?: Hand[];
   showGrid: boolean;
   ghostStyle?: 'skeleton' | 'silhouette' | 'both';
   /** Device left/right tilt in degrees; draws a centred level bar. */
@@ -67,10 +70,11 @@ function drawSkeleton(
   project: Project,
   colour: (a: number, b: number) => string,
   lineWidth: number,
+  connections: Array<[number, number]> = CONNECTIONS,
 ): void {
   ctx.lineCap = 'round';
   ctx.lineWidth = lineWidth;
-  for (const [a, b] of CONNECTIONS) {
+  for (const [a, b] of connections) {
     const p = pts[a];
     const q = pts[b];
     if (!visible(p) || !visible(q)) continue;
@@ -146,6 +150,13 @@ function drawSilhouette(
   ctx.globalAlpha = prevAlpha;
 }
 
+function drawHands(ctx: CanvasRenderingContext2D, hands: Hand[], project: Project): void {
+  for (const hand of hands) {
+    drawSkeleton(ctx, hand.landmarks, project, () => CYAN, 2.5, HAND_CONNECTIONS);
+    drawJoints(ctx, hand.landmarks, project, CYAN, 2.5);
+  }
+}
+
 function drawThirds(ctx: CanvasRenderingContext2D, w: number, h: number): void {
   ctx.strokeStyle = 'rgba(255,255,255,0.22)';
   ctx.lineWidth = 1;
@@ -193,6 +204,8 @@ export function drawOverlay(ctx: CanvasRenderingContext2D, input: OverlayInput):
     drawSkeleton(ctx, person.landmarks, project, (a, b) => colourForBone(a, b, person.jointErrors), 4);
     drawJoints(ctx, person.landmarks, project, CYAN, 3.5);
   }
+
+  if (input.hands?.length) drawHands(ctx, input.hands, project);
 
   ctx.restore();
 

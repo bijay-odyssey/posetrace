@@ -54,8 +54,14 @@ phone camera — like the Huawei / Xiaomi "ghost silhouette" pose guide.
 - **Burn overlay into photo:** `Options` toggle — the skeleton / silhouette ghost
   is composited into the saved JPEG (grid and level guides never are). When on,
   the photo is cropped to the viewfinder so it lines up.
-- Offline after first use — app shell is precached; wasm, pose model, the
-  TensorFlow bundle and the three.js bundle are cached on first fetch.
+- **Hand tracking:** `Options` toggle (off by default) — a second MediaPipe
+  model (HandLandmarker, 21 points/hand, up to 2 hands) runs alongside pose and
+  draws a hand skeleton. Live display only, not matched against a template; a
+  second full inference pass per frame, so it costs real CPU/GPU — the ~8 MB
+  model only downloads the first time it's switched on.
+- Offline after first use — app shell is precached; wasm, pose model, hand
+  model, the TensorFlow bundle and the three.js bundle are cached on first
+  fetch.
 
 ## Run it
 
@@ -121,6 +127,7 @@ phone.
 | 3D pose preview (lazy three.js) | `src/three/posePreview.ts`, `src/ui/PosePreview3D.tsx` |
 | Multi-person select + draw | `src/pose/runLandmarker.ts` (`primaryIndex`), `src/overlay/draw.ts` |
 | Group templates (multi-person) | `src/data/templatePose.ts`, `src/match/matcher.ts` (`matchGroup`) |
+| Hand tracking (lazy HandLandmarker) | `src/pose/runLandmarker.ts`, `src/pose/handLandmarks.ts`, wired through `worker.ts`/`poseClient.ts` |
 
 Tuning knobs: `WEIGHTS` / `MAX_ERR` in `src/match/matcher.ts`, colour thresholds
 in `src/overlay/draw.ts`, filter constants in `src/filter/oneEuro.ts`,

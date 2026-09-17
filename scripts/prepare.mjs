@@ -11,17 +11,28 @@ const pub = resolve(root, 'public');
 
 const MODEL_URL =
   'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task';
+const HAND_MODEL_URL =
+  'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task';
 
-async function fetchModel() {
-  const dest = resolve(pub, 'models/pose_landmarker_lite.task');
-  if (existsSync(dest)) return console.log('[prepare] pose model present');
+async function fetchOne(url, dest, label) {
+  if (existsSync(dest)) return console.log(`[prepare] ${label} model present`);
   mkdirSync(dirname(dest), { recursive: true });
-  console.log('[prepare] downloading pose model (~3 MB)…');
-  const res = await fetch(MODEL_URL);
-  if (!res.ok) throw new Error(`model download failed: HTTP ${res.status}`);
+  console.log(`[prepare] downloading ${label} model…`);
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`${label} model download failed: HTTP ${res.status}`);
   const buf = Buffer.from(await res.arrayBuffer());
   writeFileSync(dest, buf);
-  console.log(`[prepare] pose model saved (${(buf.length / 1e6).toFixed(1)} MB)`);
+  console.log(`[prepare] ${label} model saved (${(buf.length / 1e6).toFixed(1)} MB)`);
+}
+
+async function fetchModel() {
+  await fetchOne(MODEL_URL, resolve(pub, 'models/pose_landmarker_lite.task'), 'pose');
+}
+
+// Hand tracking is opt-in at runtime, but downloaded up front like the pose
+// model so `npm run dev`/`build` never needs network mid-session to fetch it.
+async function fetchHandModel() {
+  await fetchOne(HAND_MODEL_URL, resolve(pub, 'models/hand_landmarker.task'), 'hand');
 }
 
 function copyWasm() {
@@ -118,5 +129,6 @@ async function genIcons() {
 
 // ---------------------------------------------------------------------------
 try { await fetchModel(); } catch (e) { console.warn('[prepare] model step:', e.message); }
+try { await fetchHandModel(); } catch (e) { console.warn('[prepare] hand model step:', e.message); }
 copyWasm();
 try { await genIcons(); } catch (e) { console.warn('[prepare] icon step:', e.message); }

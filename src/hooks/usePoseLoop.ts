@@ -10,7 +10,7 @@ import {
   type SilhouetteHandle,
 } from '../overlay/draw';
 import type { PoseEngine } from '../pose/poseClient';
-import type { Landmark, MatchResult, Template, TemplatePose } from '../pose/types';
+import type { Hand, Landmark, MatchResult, Template, TemplatePose } from '../pose/types';
 
 export type { SilhouetteHandle };
 
@@ -33,6 +33,7 @@ export type LoopSettings = {
   readyScore: number;
   ghostStyle: GhostStyle;
   burnOverlay: boolean;
+  handTracking: boolean;
 };
 
 type Ref<T> = { current: T | null };
@@ -41,6 +42,7 @@ type Ref<T> = { current: T | null };
 export type FrameSnapshot = {
   ghosts: OverlayGhost[];
   people: OverlayPerson[];
+  hands: Hand[];
 };
 
 type Props = {
@@ -102,6 +104,7 @@ export function usePoseLoop(props: Props): void {
     let lastTs = 0;
     let primary: Landmark[] | null = null;
     let people: Landmark[][] = [];
+    let hands: Hand[] = [];
     let match: MatchResult | null = null;
     let group: GroupMatch | null = null;
     let readySince: number | null = null;
@@ -132,6 +135,7 @@ export function usePoseLoop(props: Props): void {
       try {
         const res = await engine.detect(video, ts);
         const extra = res.extra ?? [];
+        hands = res.hands ?? [];
         if (res.landmarks) {
           primary = filter.apply(res.landmarks, now);
           people = [primary, ...extra];
@@ -174,7 +178,7 @@ export function usePoseLoop(props: Props): void {
 
     const buildModel = (): FrameSnapshot => {
       const tpl = latest.current.templateRef.current;
-      if (!people.length) return { ghosts: [], people: [] };
+      if (!people.length) return { ghosts: [], people: [], hands };
 
       // No group match running: primary person bright, everyone else dim.
       const soloPeople = (): OverlayPerson[] =>
@@ -185,7 +189,7 @@ export function usePoseLoop(props: Props): void {
         }));
 
       if (!group) {
-        if (!tpl || !primary) return { ghosts: [], people: soloPeople() };
+        if (!tpl || !primary) return { ghosts: [], people: soloPeople(), hands };
         const poses = posesFor(tpl);
         return {
           ghosts: [
@@ -197,6 +201,7 @@ export function usePoseLoop(props: Props): void {
             },
           ],
           people: soloPeople(),
+          hands,
         };
       }
 
@@ -221,7 +226,7 @@ export function usePoseLoop(props: Props): void {
           dim: slot < 0,
         };
       });
-      return { ghosts, people: overlayPeople };
+      return { ghosts, people: overlayPeople, hands };
     };
 
     const render = () => {
@@ -246,6 +251,7 @@ export function usePoseLoop(props: Props): void {
         project,
         ghosts: model.ghosts,
         people: model.people,
+        hands: model.hands,
         showGrid: s?.showGrid ?? false,
         ghostStyle: s?.ghostStyle ?? 'both',
         level: latest.current.levelRef?.current ?? null,
