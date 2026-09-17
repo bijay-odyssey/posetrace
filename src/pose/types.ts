@@ -8,6 +8,9 @@ export type Hand = {
   handedness: 'Left' | 'Right';
 };
 
+/** Per-pixel foreground confidence from pose segmentation, model-resolution. */
+export type MaskData = { data: Float32Array; width: number; height: number };
+
 export type PoseResult = {
   /** Primary subject (largest in frame): 33 landmarks in normalized image
    *  space (0..1), or null if no person found. */
@@ -18,6 +21,8 @@ export type PoseResult = {
   extra: Landmark[][];
   /** Detected hands, live display only (not matched against a template). */
   hands: Hand[];
+  /** Primary subject's segmentation mask, only when body-outline tracking is on. */
+  mask: MaskData | null;
 };
 
 /** A person silhouette (from the pose segmentation mask) stored with a template. */

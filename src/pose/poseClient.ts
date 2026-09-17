@@ -10,6 +10,7 @@ import {
   detectVideo,
   initVideoHandLandmarker,
   initVideoLandmarker,
+  setSegmentationEnabled,
 } from './runLandmarker';
 import { WASM_PATH } from './wasmPath';
 import type { PoseWorkerApi } from './worker';
@@ -23,6 +24,8 @@ export interface PoseEngine {
   detect(video: HTMLVideoElement, ts: number): Promise<PoseResult>;
   /** Lazily loads the hand model on first enable; a no-op cost after that. */
   setHandTracking(enabled: boolean): Promise<void>;
+  /** Reconfigures the already-loaded pose model; no second model involved. */
+  setBodyOutline(enabled: boolean): Promise<void>;
   close(): void;
 }
 
@@ -61,6 +64,9 @@ async function workerEngine(): Promise<PoseEngine> {
     setHandTracking(enabled) {
       return api.setHandTracking(enabled);
     },
+    setBodyOutline(enabled) {
+      return api.setBodyOutline(enabled);
+    },
     close() {
       worker.terminate();
     },
@@ -80,10 +86,13 @@ async function mainThreadEngine(): Promise<PoseEngine> {
   let handLm: Awaited<ReturnType<typeof initVideoHandLandmarker>> | null = null;
   let handLmPromise: ReturnType<typeof initVideoHandLandmarker> | null = null;
   let handTrackingEnabled = false;
+  // Guards detect() against running while setOptions() is reconfiguring `lm`.
+  let reconfiguring: Promise<void> | null = null;
 
   return {
     mode: `main/${delegate}`,
     async detect(video, ts) {
+      if (reconfiguring) await reconfiguring;
       const pose = detectVideo(lm, video, ts);
       const hands: Hand[] = handTrackingEnabled && handLm ? detectHandsVideo(handLm, video, ts) : [];
       return { ...pose, hands };
@@ -102,6 +111,12 @@ async function mainThreadEngine(): Promise<PoseEngine> {
       if (handLmPromise) {
         handLm = await handLmPromise;
       }
+    },
+    async setBodyOutline(enabled) {
+      reconfiguring = setSegmentationEnabled(lm, enabled).finally(() => {
+        reconfiguring = null;
+      });
+      await reconfiguring;
     },
     close() {
       lm.close();
