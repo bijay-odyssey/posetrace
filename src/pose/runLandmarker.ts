@@ -110,11 +110,17 @@ export function detectVideo(
     return { landmarks: null, worldLandmarks: null, extra: [], mask: null };
   }
   const pi = primaryIndex(people);
+  const mask = extractMask(r.segmentationMasks, pi);
+  // extractMask only reads+closes index `pi` - close everyone else's too, or
+  // their WASM-backed masks leak every frame for as long as segmentation runs.
+  r.segmentationMasks?.forEach((m, i) => {
+    if (i !== pi) m.close();
+  });
   return {
     landmarks: people[pi],
     worldLandmarks: toWorld(r.worldLandmarks?.[pi]),
     extra: people.filter((_, i) => i !== pi),
-    mask: extractMask(r.segmentationMasks, pi),
+    mask,
   };
 }
 

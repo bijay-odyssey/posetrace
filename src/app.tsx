@@ -99,11 +99,17 @@ export function App() {
   // Reconfigures the already-loaded pose model; no second model/download.
   useEffect(() => {
     if (!engine) return;
+    let cancelled = false;
     engine.setBodyOutline(settings.bodyOutline).catch((e) => {
       console.error(e);
-      setNotice('Body outline failed to enable.');
-      setSettings((s) => ({ ...s, bodyOutline: false }));
+      if (!cancelled) {
+        setNotice('Body outline failed to enable.');
+        setSettings((s) => ({ ...s, bodyOutline: false }));
+      }
     });
+    return () => {
+      cancelled = true;
+    };
   }, [engine, settings.bodyOutline]);
 
   const frameRef = useRef<FrameSnapshot | null>(null);

@@ -172,26 +172,32 @@ function drawHands(
 
 const OUTLINE_RGB: [number, number, number] = [34, 211, 238]; // --accent cyan
 let maskCanvas: HTMLCanvasElement | null = null;
+let maskImage: ImageData | null = null;
 
-/** Thresholds + tints the mask into a reusable offscreen canvas (resized only when needed). */
+/** Thresholds + tints the mask into a reusable offscreen canvas. The canvas
+ *  and its backing ImageData are only (re)allocated when the mask's own
+ *  resolution changes, not on every call - this runs up to once per frame. */
 function maskToCanvas(mask: MaskData): HTMLCanvasElement {
   maskCanvas ??= document.createElement('canvas');
   if (maskCanvas.width !== mask.width || maskCanvas.height !== mask.height) {
     maskCanvas.width = mask.width;
     maskCanvas.height = mask.height;
+    maskImage = null;
   }
   const mctx = maskCanvas.getContext('2d');
   if (!mctx) return maskCanvas;
-  const img = mctx.createImageData(mask.width, mask.height);
+  maskImage ??= mctx.createImageData(mask.width, mask.height);
+
   const [r, g, b] = OUTLINE_RGB;
+  const out = maskImage.data;
   for (let i = 0; i < mask.data.length; i++) {
     const o = i * 4;
-    img.data[o] = r;
-    img.data[o + 1] = g;
-    img.data[o + 2] = b;
-    img.data[o + 3] = mask.data[i] > 0.5 ? 255 : 0;
+    out[o] = r;
+    out[o + 1] = g;
+    out[o + 2] = b;
+    out[o + 3] = mask.data[i] > 0.5 ? 255 : 0;
   }
-  mctx.putImageData(img, 0, 0);
+  mctx.putImageData(maskImage, 0, 0);
   return maskCanvas;
 }
 

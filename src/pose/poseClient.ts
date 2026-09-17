@@ -86,10 +86,13 @@ async function mainThreadEngine(): Promise<PoseEngine> {
   let handLm: Awaited<ReturnType<typeof initVideoHandLandmarker>> | null = null;
   let handLmPromise: ReturnType<typeof initVideoHandLandmarker> | null = null;
   let handTrackingEnabled = false;
+  // Guards detect() against running while setOptions() is reconfiguring `lm`.
+  let reconfiguring: Promise<void> | null = null;
 
   return {
     mode: `main/${delegate}`,
     async detect(video, ts) {
+      if (reconfiguring) await reconfiguring;
       const pose = detectVideo(lm, video, ts);
       const hands: Hand[] = handTrackingEnabled && handLm ? detectHandsVideo(handLm, video, ts) : [];
       return { ...pose, hands };
@@ -109,8 +112,11 @@ async function mainThreadEngine(): Promise<PoseEngine> {
         handLm = await handLmPromise;
       }
     },
-    setBodyOutline(enabled) {
-      return setSegmentationEnabled(lm, enabled);
+    async setBodyOutline(enabled) {
+      reconfiguring = setSegmentationEnabled(lm, enabled).finally(() => {
+        reconfiguring = null;
+      });
+      await reconfiguring;
     },
     close() {
       lm.close();
