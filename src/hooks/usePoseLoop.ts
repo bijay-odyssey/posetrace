@@ -178,9 +178,11 @@ export function usePoseLoop(props: Props): void {
       }
     };
 
-    const buildModel = (): FrameSnapshot => {
+    const buildModel = (aspect: number): FrameSnapshot => {
       const tpl = latest.current.templateRef.current;
-      const angles = primary ? computeLiveAngles(primary, hands) : null;
+      // Only the 'blueprint' style shows these - skip the work otherwise.
+      const wantAngles = latest.current.settingsRef.current?.ghostStyle === 'blueprint';
+      const angles = wantAngles && primary ? computeLiveAngles(primary, hands, aspect) : null;
       if (!people.length) return { ghosts: [], people: [], hands, angles };
 
       // No group match running: primary person bright, everyone else dim.
@@ -247,7 +249,7 @@ export function usePoseLoop(props: Props): void {
       const vh = video.videoHeight || h;
       const project = makeProjection(coverCrop(vw, vh, w, h), vw, vh, w, h);
 
-      const model = buildModel();
+      const model = buildModel(vh / vw);
       drawOverlay(ctx, {
         w,
         h,

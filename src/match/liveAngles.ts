@@ -10,7 +10,9 @@ const VIS = 0.3;
 const isVisible = (p: Landmark | undefined): p is Landmark => !!p && (p.visibility ?? 1) >= VIS;
 const toDeg = (rad: number): number => Math.round((rad * 180) / Math.PI);
 
-/** How close (normalized image units) a hand's wrist must be to a pose wrist to pair with it. */
+/** How close a hand's wrist must be to a pose wrist to pair with it, as a
+ *  fraction of frame width (the `aspect` param corrects the y-axis for it,
+ *  since landmark coords are normalized per-axis to width/height separately). */
 const HAND_PAIR_DIST = 0.08;
 
 export type LiveAngles = {
@@ -38,35 +40,60 @@ function headTilt(pose: Landmark[]): number | null {
   return toDeg(Math.atan2(rEar.y - lEar.y, rEar.x - lEar.x));
 }
 
-/** Nearest detected hand to a pose wrist, within HAND_PAIR_DIST, or null. */
-function nearestHand(wrist: Landmark, hands: Hand[]): Hand | null {
-  let best: Hand | null = null;
-  let bestDist = HAND_PAIR_DIST;
-  for (const hand of hands) {
-    const d = Math.hypot(hand.landmarks[0].x - wrist.x, hand.landmarks[0].y - wrist.y);
-    if (d < bestDist) {
-      bestDist = d;
-      best = hand;
+/**
+ * Exclusively pairs each visible pose wrist to the nearest still-unclaimed
+ * detected hand (closest pair first), so clasped/crossed hands - the exact
+ * shape of the pose this feature was designed against - can't bind the same
+ * hand to both wrist labels.
+ */
+function pairHandsToWrists(
+  lWrist: Landmark | undefined,
+  rWrist: Landmark | undefined,
+  hands: Hand[],
+  aspect: number,
+): { l: Hand | null; r: Hand | null } {
+  const wrists: Array<{ side: 'l' | 'r'; wrist: Landmark }> = [];
+  if (isVisible(lWrist)) wrists.push({ side: 'l', wrist: lWrist });
+  if (isVisible(rWrist)) wrists.push({ side: 'r', wrist: rWrist });
+
+  const candidates: Array<{ side: 'l' | 'r'; hand: Hand; dist: number }> = [];
+  for (const { side, wrist } of wrists) {
+    for (const hand of hands) {
+      const dx = hand.landmarks[0].x - wrist.x;
+      const dy = (hand.landmarks[0].y - wrist.y) * aspect;
+      const dist = Math.hypot(dx, dy);
+      if (dist <= HAND_PAIR_DIST) candidates.push({ side, hand, dist });
     }
   }
-  return best;
+  candidates.sort((a, b) => a.dist - b.dist);
+
+  const used = new Set<Hand>();
+  const result: { l: Hand | null; r: Hand | null } = { l: null, r: null };
+  for (const c of candidates) {
+    if (result[c.side] || used.has(c.hand)) continue;
+    result[c.side] = c.hand;
+    used.add(c.hand);
+  }
+  return result;
 }
 
 /** Coarse wrist angle (forearm vs. palm direction), degrees. 180 = straight. */
-function wristAngle(elbow: Landmark | undefined, wrist: Landmark | undefined, hands: Hand[]): number | null {
-  if (!isVisible(elbow) || !isVisible(wrist)) return null;
-  const hand = nearestHand(wrist, hands);
-  if (!hand) return null;
+function wristAngleFor(elbow: Landmark | undefined, wrist: Landmark | undefined, hand: Hand | null): number | null {
+  if (!isVisible(elbow) || !isVisible(wrist) || !hand) return null;
   const palm = hand.landmarks[9]; // middle-finger MCP
   const a = jointAngle(elbow, wrist, palm);
   return isFinite(a) ? toDeg(a) : null;
 }
 
-export function computeLiveAngles(pose: Landmark[], hands: Hand[]): LiveAngles {
+/** @param aspect frame height / frame width, to keep HAND_PAIR_DIST isotropic. */
+export function computeLiveAngles(pose: Landmark[], hands: Hand[], aspect = 1): LiveAngles {
+  const lWrist = pose[LM.lWrist];
+  const rWrist = pose[LM.rWrist];
+  const paired = hands.length ? pairHandsToWrists(lWrist, rWrist, hands, aspect) : { l: null, r: null };
   return {
     torsoLeanDeg: torsoLean(pose),
     headTiltDeg: headTilt(pose),
-    lWristDeg: wristAngle(pose[LM.lElbow], pose[LM.lWrist], hands),
-    rWristDeg: wristAngle(pose[LM.rElbow], pose[LM.rWrist], hands),
+    lWristDeg: wristAngleFor(pose[LM.lElbow], lWrist, paired.l),
+    rWristDeg: wristAngleFor(pose[LM.rElbow], rWrist, paired.r),
   };
 }

@@ -153,10 +153,16 @@ function drawSilhouette(
   ctx.globalAlpha = prevAlpha;
 }
 
-function drawHands(ctx: CanvasRenderingContext2D, hands: Hand[], project: Project): void {
+function drawHands(
+  ctx: CanvasRenderingContext2D,
+  hands: Hand[],
+  project: Project,
+  colour: string = CYAN,
+  lineWidth = 2.5,
+): void {
   for (const hand of hands) {
-    drawSkeleton(ctx, hand.landmarks, project, () => CYAN, 2.5, HAND_CONNECTIONS);
-    drawJoints(ctx, hand.landmarks, project, CYAN, 2.5);
+    drawSkeleton(ctx, hand.landmarks, project, () => colour, lineWidth, HAND_CONNECTIONS);
+    drawJoints(ctx, hand.landmarks, project, colour, lineWidth);
   }
 }
 
@@ -235,12 +241,7 @@ function drawBlueprintPass(ctx: CanvasRenderingContext2D, input: OverlayInput, p
     drawJoints(ctx, person.landmarks, project, colour, person.dim ? 1.8 : 2.5);
   }
 
-  if (input.hands?.length) {
-    for (const hand of input.hands) {
-      drawSkeleton(ctx, hand.landmarks, project, () => MONO, 1.5, HAND_CONNECTIONS);
-      drawJoints(ctx, hand.landmarks, project, MONO, 1.8);
-    }
-  }
+  if (input.hands?.length) drawHands(ctx, input.hands, project, MONO, 1.8);
 
   if (input.angles) {
     drawAngleLabels(ctx, input.people[0]?.landmarks, input.angles, project, input.mirror);
