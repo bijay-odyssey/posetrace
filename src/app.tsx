@@ -122,10 +122,21 @@ export function App() {
     fps: 0,
     mode: '',
   });
+  // Mirrors `stats` but updates every frame (unthrottled) - capture() reads
+  // this instead of `stats` so a fast template-switch-then-shutter or an
+  // auto-shutter fire can't snapshot a stale score/ready from a prior render.
+  const statsRef = useRef<LoopStats>(stats);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [preview3dOpen, setPreview3dOpen] = useState(false);
-  const [review, setReview] = useState<{ url: string; blob: Blob | null } | null>(null);
+  const [review, setReview] = useState<{
+    url: string;
+    blob: Blob | null;
+    score: number | null;
+    ready: boolean;
+    perScore: number[];
+    template: Template | null;
+  } | null>(null);
   const reviewRef = useRef(review);
   reviewRef.current = review;
 
@@ -335,7 +346,16 @@ export function App() {
 
     const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/jpeg', 0.92));
     if (!blob) return;
-    setReview({ url: URL.createObjectURL(blob), blob });
+    const tpl = templateRef.current;
+    const snap = statsRef.current;
+    setReview({
+      url: URL.createObjectURL(blob),
+      blob,
+      score: tpl ? snap.score : null,
+      ready: snap.ready,
+      perScore: snap.perScore,
+      template: tpl,
+    });
   }
 
   async function importPhoto(file: File) {
@@ -405,6 +425,7 @@ export function App() {
     levelRef,
     silhouetteRef,
     frameRef,
+    statsRef,
     onStats: setStats,
     onReadyChange: (ready) => {
       if (ready) cues.aligned();
@@ -560,6 +581,10 @@ export function App() {
         <ReviewScreen
           url={review.url}
           blob={review.blob}
+          score={review.score}
+          ready={review.ready}
+          perScore={review.perScore}
+          template={review.template}
           onRetake={() => {
             URL.revokeObjectURL(review.url);
             setReview(null);
