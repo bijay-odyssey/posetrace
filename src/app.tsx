@@ -134,8 +134,10 @@ export function App() {
   // First-ever camera start with nothing saved yet: open the reference picker
   // once so the feature isn't hidden behind an icon-only button. Never nags
   // again after that (localStorage flag), even if the user picks "No reference".
+  // Waits for the initial `busy` overlay to clear - it's a full-screen div with
+  // no z-index, rendered last, so it would otherwise paint over the sheet.
   useEffect(() => {
-    if (phase !== 'live' || !templatesLoaded || templates.length > 0) return;
+    if (phase !== 'live' || busy || !templatesLoaded || templates.length > 0) return;
     let alreadySeen = false;
     try {
       alreadySeen = !!localStorage.getItem(SEEN_REF_PICKER_KEY);
@@ -145,7 +147,7 @@ export function App() {
        * once per page load rather than never, since we can't remember either way. */
     }
     if (!alreadySeen) setSheetOpen(true);
-  }, [phase, templatesLoaded, templates.length]);
+  }, [phase, busy, templatesLoaded, templates.length]);
 
   useEffect(() => {
     if (!notice) return;
