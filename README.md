@@ -59,6 +59,13 @@ phone camera — like the Huawei / Xiaomi "ghost silhouette" pose guide.
   draws a hand skeleton. Live display only, not matched against a template; a
   second full inference pass per frame, so it costs real CPU/GPU — the ~8 MB
   model only downloads the first time it's switched on.
+- **Blueprint ghost style:** a fourth `Ghost style` option (`Options`) —
+  monochrome thin-line skeleton instead of cyan/silhouette, plus live on-screen
+  callouts computed from your actual tracked pose: torso lean and head tilt
+  always, wrist angle for each hand when `Hand tracking` is also on and a hand
+  is paired to that wrist (nearest hand within ~8% of frame width). Works with
+  no reference template selected — these are live readouts of your own pose,
+  not comparisons against a target.
 - Offline after first use — app shell is precached; wasm, pose model, hand
   model, the TensorFlow bundle and the three.js bundle are cached on first
   fetch.
@@ -128,6 +135,7 @@ phone.
 | Multi-person select + draw | `src/pose/runLandmarker.ts` (`primaryIndex`), `src/overlay/draw.ts` |
 | Group templates (multi-person) | `src/data/templatePose.ts`, `src/match/matcher.ts` (`matchGroup`) |
 | Hand tracking (lazy HandLandmarker) | `src/pose/runLandmarker.ts`, `src/pose/handLandmarks.ts`, wired through `worker.ts`/`poseClient.ts` |
+| Blueprint style + live angle callouts | `src/overlay/draw.ts` (`drawBlueprintPass`), `src/match/liveAngles.ts` |
 
 Tuning knobs: `WEIGHTS` / `MAX_ERR` in `src/match/matcher.ts`, colour thresholds
 in `src/overlay/draw.ts`, filter constants in `src/filter/oneEuro.ts`,

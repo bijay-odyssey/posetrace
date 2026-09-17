@@ -1,3 +1,4 @@
+import type { LiveAngles } from '../match/liveAngles';
 import { HAND_CONNECTIONS } from '../pose/handLandmarks';
 import { CONNECTIONS, CONNECTION_JOINT, LM, connKey } from '../pose/landmarks';
 import { dist, mid, normalizePose } from '../match/normalize';
@@ -35,8 +36,10 @@ export type OverlayInput = {
   people: OverlayPerson[];
   /** Live display only - not matched against a template. */
   hands?: Hand[];
+  /** Live display only, for the 'blueprint' style's on-screen callouts. */
+  angles?: LiveAngles | null;
   showGrid: boolean;
-  ghostStyle?: 'skeleton' | 'silhouette' | 'both';
+  ghostStyle?: 'skeleton' | 'silhouette' | 'both' | 'blueprint';
   /** Device left/right tilt in degrees; draws a centred level bar. */
   level?: { roll: number } | null;
   /** Clear the canvas first (default true); false to composite over existing pixels. */
@@ -157,6 +160,93 @@ function drawHands(ctx: CanvasRenderingContext2D, hands: Hand[], project: Projec
   }
 }
 
+// ---- blueprint style: monochrome line skeleton + live angle callouts --------
+
+const MONO = 'rgba(255,255,255,0.9)';
+const MONO_GHOST = 'rgba(255,255,255,0.4)';
+const MONO_DIM = 'rgba(255,255,255,0.2)';
+
+/** Draws upright even when the outer context is horizontally mirrored. */
+function drawLabel(ctx: CanvasRenderingContext2D, x: number, y: number, text: string, mirror: boolean): void {
+  ctx.save();
+  ctx.translate(x, y);
+  if (mirror) ctx.scale(-1, 1);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = '600 12px system-ui, sans-serif';
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = 'rgba(0,0,0,0.75)';
+  ctx.strokeText(text, 0, 0);
+  ctx.fillStyle = '#fff';
+  ctx.fillText(text, 0, 0);
+  ctx.restore();
+}
+
+function drawAngleLabels(
+  ctx: CanvasRenderingContext2D,
+  primary: Landmark[] | undefined,
+  angles: LiveAngles,
+  project: Project,
+  mirror: boolean,
+): void {
+  if (!primary) return;
+  const at = (p: Landmark | undefined, dx: number, dy: number): [number, number] | null => {
+    if (!visible(p)) return null;
+    const [x, y] = project(p.x, p.y);
+    return [x + dx, y + dy];
+  };
+
+  if (angles.torsoLeanDeg != null) {
+    const lSho = primary[LM.lShoulder];
+    const rSho = primary[LM.rShoulder];
+    const lHip = primary[LM.lHip];
+    const rHip = primary[LM.rHip];
+    if (visible(lSho) && visible(rSho) && visible(lHip) && visible(rHip)) {
+      const mx = (lSho.x + rSho.x + lHip.x + rHip.x) / 4;
+      const my = (lSho.y + rSho.y + lHip.y + rHip.y) / 4;
+      const [x, y] = project(mx, my);
+      drawLabel(ctx, x + 16, y, `Torso lean: ${angles.torsoLeanDeg}°`, mirror);
+    }
+  }
+  const head = at(primary[LM.nose], 0, -18);
+  if (angles.headTiltDeg != null && head) {
+    drawLabel(ctx, head[0], head[1], `Head tilt: ${angles.headTiltDeg}°`, mirror);
+  }
+  const lWrist = at(primary[LM.lWrist], 14, -14);
+  if (angles.lWristDeg != null && lWrist) {
+    drawLabel(ctx, lWrist[0], lWrist[1], `L wrist: ${angles.lWristDeg}°`, mirror);
+  }
+  const rWrist = at(primary[LM.rWrist], -14, -14);
+  if (angles.rWristDeg != null && rWrist) {
+    drawLabel(ctx, rWrist[0], rWrist[1], `R wrist: ${angles.rWristDeg}°`, mirror);
+  }
+}
+
+function drawBlueprintPass(ctx: CanvasRenderingContext2D, input: OverlayInput, project: Project): void {
+  for (const g of input.ghosts) {
+    const ghost = ghostFrom(g.target, g.anchor);
+    drawSkeleton(ctx, ghost, project, () => MONO_GHOST, 1.5);
+    drawJoints(ctx, ghost, project, MONO_GHOST, 2.5);
+  }
+
+  for (const person of input.people) {
+    const colour = person.dim ? MONO_DIM : MONO;
+    drawSkeleton(ctx, person.landmarks, project, () => colour, person.dim ? 1 : 1.5);
+    drawJoints(ctx, person.landmarks, project, colour, person.dim ? 1.8 : 2.5);
+  }
+
+  if (input.hands?.length) {
+    for (const hand of input.hands) {
+      drawSkeleton(ctx, hand.landmarks, project, () => MONO, 1.5, HAND_CONNECTIONS);
+      drawJoints(ctx, hand.landmarks, project, MONO, 1.8);
+    }
+  }
+
+  if (input.angles) {
+    drawAngleLabels(ctx, input.people[0]?.landmarks, input.angles, project, input.mirror);
+  }
+}
+
 function drawThirds(ctx: CanvasRenderingContext2D, w: number, h: number): void {
   ctx.strokeStyle = 'rgba(255,255,255,0.22)';
   ctx.lineWidth = 1;
@@ -168,6 +258,22 @@ function drawThirds(ctx: CanvasRenderingContext2D, w: number, h: number): void {
     ctx.lineTo(w, (h * i) / 3);
   }
   ctx.stroke();
+}
+
+function drawLevelBar(ctx: CanvasRenderingContext2D, input: OverlayInput, w: number, h: number): void {
+  if (!input.level) return;
+  const { roll } = input.level;
+  const lvl = Math.abs(roll) < 2;
+  ctx.save();
+  ctx.translate(w / 2, h / 2);
+  ctx.rotate((-roll * Math.PI) / 180);
+  ctx.strokeStyle = lvl ? 'rgba(34,197,94,0.9)' : 'rgba(255,255,255,0.45)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(-w * 0.16, 0);
+  ctx.lineTo(w * 0.16, 0);
+  ctx.stroke();
+  ctx.restore();
 }
 
 export function drawOverlay(ctx: CanvasRenderingContext2D, input: OverlayInput): void {
@@ -182,6 +288,13 @@ export function drawOverlay(ctx: CanvasRenderingContext2D, input: OverlayInput):
   }
 
   if (showGrid) drawThirds(ctx, w, h);
+
+  if (ghostStyle === 'blueprint') {
+    drawBlueprintPass(ctx, input, project);
+    ctx.restore();
+    drawLevelBar(ctx, input, w, h);
+    return;
+  }
 
   for (const g of ghosts) {
     if (g.silhouette && ghostStyle !== 'skeleton') {
@@ -208,19 +321,5 @@ export function drawOverlay(ctx: CanvasRenderingContext2D, input: OverlayInput):
   if (input.hands?.length) drawHands(ctx, input.hands, project);
 
   ctx.restore();
-
-  if (input.level) {
-    const { roll } = input.level;
-    const lvl = Math.abs(roll) < 2;
-    ctx.save();
-    ctx.translate(w / 2, h / 2);
-    ctx.rotate((-roll * Math.PI) / 180);
-    ctx.strokeStyle = lvl ? 'rgba(34,197,94,0.9)' : 'rgba(255,255,255,0.45)';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(-w * 0.16, 0);
-    ctx.lineTo(w * 0.16, 0);
-    ctx.stroke();
-    ctx.restore();
-  }
+  drawLevelBar(ctx, input, w, h);
 }
