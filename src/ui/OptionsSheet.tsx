@@ -13,6 +13,7 @@ const GHOST_STYLES: Array<{ id: GhostStyle; label: string }> = [
   { id: 'both', label: 'Both' },
   { id: 'silhouette', label: 'Silhouette' },
   { id: 'skeleton', label: 'Skeleton' },
+  { id: 'blueprint', label: 'Blueprint' },
 ];
 
 export function OptionsSheet(props: Props) {
@@ -22,7 +23,7 @@ export function OptionsSheet(props: Props) {
       <div class="sheet" onClick={(e) => e.stopPropagation()}>
         <h2>Options</h2>
 
-        <div class="opt">
+        <div class="opt col">
           <span>Ghost style</span>
           <div class="seg">
             {GHOST_STYLES.map((g) => (

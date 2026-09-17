@@ -307,6 +307,7 @@ export function App() {
         ghosts: frame.ghosts,
         people: frame.people,
         hands: frame.hands,
+        angles: frame.angles,
         showGrid: false,
         ghostStyle: s.ghostStyle,
         level: null,

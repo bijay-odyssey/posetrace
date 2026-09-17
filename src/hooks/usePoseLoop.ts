@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'preact/hooks';
 import { isGroupTemplate, templatePoses } from '../data/templatePose';
 import { PoseFilter } from '../filter/oneEuro';
+import { computeLiveAngles, type LiveAngles } from '../match/liveAngles';
 import { type GroupMatch, matchGroup, matchPose } from '../match/matcher';
 import { coverCrop, makeProjection } from '../overlay/coverCrop';
 import {
@@ -24,7 +25,7 @@ export type LoopStats = {
   mode: string;
 };
 
-export type GhostStyle = 'skeleton' | 'silhouette' | 'both';
+export type GhostStyle = 'skeleton' | 'silhouette' | 'both' | 'blueprint';
 
 export type LoopSettings = {
   mirror: boolean;
@@ -43,6 +44,7 @@ export type FrameSnapshot = {
   ghosts: OverlayGhost[];
   people: OverlayPerson[];
   hands: Hand[];
+  angles: LiveAngles | null;
 };
 
 type Props = {
@@ -176,9 +178,12 @@ export function usePoseLoop(props: Props): void {
       }
     };
 
-    const buildModel = (): FrameSnapshot => {
+    const buildModel = (aspect: number): FrameSnapshot => {
       const tpl = latest.current.templateRef.current;
-      if (!people.length) return { ghosts: [], people: [], hands };
+      // Only the 'blueprint' style shows these - skip the work otherwise.
+      const wantAngles = latest.current.settingsRef.current?.ghostStyle === 'blueprint';
+      const angles = wantAngles && primary ? computeLiveAngles(primary, hands, aspect) : null;
+      if (!people.length) return { ghosts: [], people: [], hands, angles };
 
       // No group match running: primary person bright, everyone else dim.
       const soloPeople = (): OverlayPerson[] =>
@@ -189,7 +194,7 @@ export function usePoseLoop(props: Props): void {
         }));
 
       if (!group) {
-        if (!tpl || !primary) return { ghosts: [], people: soloPeople(), hands };
+        if (!tpl || !primary) return { ghosts: [], people: soloPeople(), hands, angles };
         const poses = posesFor(tpl);
         return {
           ghosts: [
@@ -202,6 +207,7 @@ export function usePoseLoop(props: Props): void {
           ],
           people: soloPeople(),
           hands,
+          angles,
         };
       }
 
@@ -226,7 +232,7 @@ export function usePoseLoop(props: Props): void {
           dim: slot < 0,
         };
       });
-      return { ghosts, people: overlayPeople, hands };
+      return { ghosts, people: overlayPeople, hands, angles };
     };
 
     const render = () => {
@@ -243,7 +249,7 @@ export function usePoseLoop(props: Props): void {
       const vh = video.videoHeight || h;
       const project = makeProjection(coverCrop(vw, vh, w, h), vw, vh, w, h);
 
-      const model = buildModel();
+      const model = buildModel(vh / vw);
       drawOverlay(ctx, {
         w,
         h,
@@ -252,6 +258,7 @@ export function usePoseLoop(props: Props): void {
         ghosts: model.ghosts,
         people: model.people,
         hands: model.hands,
+        angles: model.angles,
         showGrid: s?.showGrid ?? false,
         ghostStyle: s?.ghostStyle ?? 'both',
         level: latest.current.levelRef?.current ?? null,

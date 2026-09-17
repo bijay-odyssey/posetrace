@@ -2,6 +2,8 @@
 
 export const LM = {
   nose: 0,
+  lEar: 7,
+  rEar: 8,
   lShoulder: 11,
   rShoulder: 12,
   lElbow: 13,

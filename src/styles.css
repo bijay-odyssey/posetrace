@@ -278,7 +278,7 @@ button:active { transform: scale(0.97); }
 .opt.col { flex-direction: column; align-items: stretch; gap: 6px; }
 .opt input[type='range'] { width: 100%; accent-color: var(--accent); }
 .opt input[type='checkbox'] { width: 22px; height: 22px; accent-color: var(--accent); }
-.seg { display: flex; gap: 4px; }
+.seg { display: flex; gap: 4px; flex-wrap: wrap; }
 .seg button { padding: 6px 10px; font-size: 12px; border-radius: 8px; }
 .seg button.on { background: var(--accent); color: #05252b; border-color: transparent; }
 
