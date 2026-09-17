@@ -1,8 +1,8 @@
 // Thin wrapper around @mediapipe/tasks-vision that runs in either the main
 // thread or a worker. Keep this environment-agnostic (no DOM-only globals
 // beyond what a worker also has).
-import { FilesetResolver, PoseLandmarker } from '@mediapipe/tasks-vision';
-import type { Landmark, PoseResult, World } from './types';
+import { FilesetResolver, HandLandmarker, PoseLandmarker } from '@mediapipe/tasks-vision';
+import type { Hand, Landmark, PoseResult, World } from './types';
 
 export type InitOpts = {
   wasmPath: string;
@@ -78,11 +78,14 @@ export async function initImageLandmarker(o: Omit<InitOpts, 'delegate'>): Promis
   }
 }
 
+/** Pose detection only; callers merge in `hands` from `detectHandsVideo` when enabled. */
+export type PoseOnlyResult = Omit<PoseResult, 'hands'>;
+
 export function detectVideo(
   lm: PoseLandmarker,
   src: HTMLVideoElement | ImageBitmap,
   ts: number,
-): PoseResult {
+): PoseOnlyResult {
   const r = lm.detectForVideo(src as unknown as HTMLVideoElement, ts);
   const people = (r.landmarks ?? []).map(toLandmarks);
   if (people.length === 0) return { landmarks: null, worldLandmarks: null, extra: [] };
@@ -92,6 +95,32 @@ export function detectVideo(
     worldLandmarks: toWorld(r.worldLandmarks?.[pi]),
     extra: people.filter((_, i) => i !== pi),
   };
+}
+
+// ---- hands (opt-in, live display only - not matched against a template) -----
+
+export async function initVideoHandLandmarker(o: InitOpts): Promise<HandLandmarker> {
+  const fileset = await FilesetResolver.forVisionTasks(o.wasmPath);
+  return HandLandmarker.createFromOptions(fileset, {
+    baseOptions: { modelAssetPath: o.modelPath, delegate: o.delegate },
+    runningMode: 'VIDEO',
+    numHands: 2,
+    minHandDetectionConfidence: 0.5,
+    minHandPresenceConfidence: 0.5,
+    minTrackingConfidence: 0.5,
+  });
+}
+
+export function detectHandsVideo(
+  lm: HandLandmarker,
+  src: HTMLVideoElement | ImageBitmap,
+  ts: number,
+): Hand[] {
+  const r = lm.detectForVideo(src as unknown as HTMLVideoElement, ts);
+  return (r.landmarks ?? []).map((lms, i) => ({
+    landmarks: toLandmarks(lms),
+    handedness: (r.handedness?.[i]?.[0]?.categoryName === 'Left' ? 'Left' : 'Right') as Hand['handedness'],
+  }));
 }
 
 export type MaskData = { data: Float32Array; width: number; height: number };
