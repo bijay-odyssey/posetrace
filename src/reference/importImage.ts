@@ -1,7 +1,7 @@
 import { bbox } from '../match/normalize';
-import { detectImage, initImageLandmarker, type MaskData } from '../pose/runLandmarker';
+import { detectImage, initImageLandmarker } from '../pose/runLandmarker';
 import { WASM_PATH } from '../pose/wasmPath';
-import type { Landmark, Silhouette, World } from '../pose/types';
+import type { Landmark, MaskData, Silhouette, World } from '../pose/types';
 
 let imageLandmarker: Awaited<ReturnType<typeof initImageLandmarker>> | null = null;
 

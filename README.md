@@ -66,6 +66,12 @@ phone camera — like the Huawei / Xiaomi "ghost silhouette" pose guide.
   is paired to that wrist (nearest hand within ~8% of frame width). Works with
   no reference template selected — these are live readouts of your own pose,
   not comparisons against a target.
+- **Body outline:** `Options` toggle (off by default) — a soft glowing contour
+  traced from the pose model's own segmentation mask, layered under the
+  skeleton/silhouette/blueprint rendering regardless of `Ghost style`.
+  Reconfigures the *already-loaded* pose model live (`PoseLandmarker.setOptions`)
+  rather than loading anything new, but segmentation itself adds real per-frame
+  cost, hence opt-in.
 - Offline after first use — app shell is precached; wasm, pose model, hand
   model, the TensorFlow bundle and the three.js bundle are cached on first
   fetch.
@@ -136,6 +142,7 @@ phone.
 | Group templates (multi-person) | `src/data/templatePose.ts`, `src/match/matcher.ts` (`matchGroup`) |
 | Hand tracking (lazy HandLandmarker) | `src/pose/runLandmarker.ts`, `src/pose/handLandmarks.ts`, wired through `worker.ts`/`poseClient.ts` |
 | Blueprint style + live angle callouts | `src/overlay/draw.ts` (`drawBlueprintPass`), `src/match/liveAngles.ts` |
+| Body outline glow (segmentation) | `src/overlay/draw.ts` (`drawBodyOutline`), `src/pose/runLandmarker.ts` (`setSegmentationEnabled`) |
 
 Tuning knobs: `WEIGHTS` / `MAX_ERR` in `src/match/matcher.ts`, colour thresholds
 in `src/overlay/draw.ts`, filter constants in `src/filter/oneEuro.ts`,

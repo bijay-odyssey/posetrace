@@ -44,6 +44,7 @@ const DEFAULT_SETTINGS: LoopSettings = {
   ghostStyle: 'both',
   burnOverlay: false,
   handTracking: false,
+  bodyOutline: false,
 };
 
 export function App() {
@@ -94,6 +95,16 @@ export function App() {
       cancelled = true;
     };
   }, [engine, settings.handTracking]);
+
+  // Reconfigures the already-loaded pose model; no second model/download.
+  useEffect(() => {
+    if (!engine) return;
+    engine.setBodyOutline(settings.bodyOutline).catch((e) => {
+      console.error(e);
+      setNotice('Body outline failed to enable.');
+      setSettings((s) => ({ ...s, bodyOutline: false }));
+    });
+  }, [engine, settings.bodyOutline]);
 
   const frameRef = useRef<FrameSnapshot | null>(null);
 
@@ -308,6 +319,7 @@ export function App() {
         people: frame.people,
         hands: frame.hands,
         angles: frame.angles,
+        mask: frame.mask,
         showGrid: false,
         ghostStyle: s.ghostStyle,
         level: null,

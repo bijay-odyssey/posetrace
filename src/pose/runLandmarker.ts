@@ -2,7 +2,17 @@
 // thread or a worker. Keep this environment-agnostic (no DOM-only globals
 // beyond what a worker also has).
 import { FilesetResolver, HandLandmarker, PoseLandmarker } from '@mediapipe/tasks-vision';
-import type { Hand, Landmark, PoseResult, World } from './types';
+import type { MPMask } from '@mediapipe/tasks-vision';
+import type { Hand, Landmark, MaskData, PoseResult, World } from './types';
+
+/** Reads + closes a segmentation mask, if the model produced one for this index. */
+function extractMask(masks: MPMask[] | undefined, index: number): MaskData | null {
+  const mp = masks?.[index];
+  if (!mp) return null;
+  const mask: MaskData = { data: mp.getAsFloat32Array(), width: mp.width, height: mp.height };
+  mp.close();
+  return mask;
+}
 
 export type InitOpts = {
   wasmPath: string;
@@ -56,8 +66,14 @@ export async function initVideoLandmarker(o: InitOpts): Promise<PoseLandmarker> 
     minPoseDetectionConfidence: 0.5,
     minPosePresenceConfidence: 0.5,
     minTrackingConfidence: 0.5,
+    // Off by default - real per-frame cost. Toggled live via setSegmentationEnabled().
     outputSegmentationMasks: false,
   });
+}
+
+/** Toggles segmentation live on an already-created landmarker (no re-init/redownload). */
+export function setSegmentationEnabled(lm: PoseLandmarker, enabled: boolean): Promise<void> {
+  return lm.setOptions({ outputSegmentationMasks: enabled });
 }
 
 export async function initImageLandmarker(o: Omit<InitOpts, 'delegate'>): Promise<PoseLandmarker> {
@@ -88,12 +104,17 @@ export function detectVideo(
 ): PoseOnlyResult {
   const r = lm.detectForVideo(src as unknown as HTMLVideoElement, ts);
   const people = (r.landmarks ?? []).map(toLandmarks);
-  if (people.length === 0) return { landmarks: null, worldLandmarks: null, extra: [] };
+  if (people.length === 0) {
+    // Still close any mask the model produced even with no confident landmarks.
+    r.segmentationMasks?.forEach((m) => m.close());
+    return { landmarks: null, worldLandmarks: null, extra: [], mask: null };
+  }
   const pi = primaryIndex(people);
   return {
     landmarks: people[pi],
     worldLandmarks: toWorld(r.worldLandmarks?.[pi]),
     extra: people.filter((_, i) => i !== pi),
+    mask: extractMask(r.segmentationMasks, pi),
   };
 }
 
@@ -123,8 +144,6 @@ export function detectHandsVideo(
   }));
 }
 
-export type MaskData = { data: Float32Array; width: number; height: number };
-
 export type ImagePerson = {
   landmarks: Landmark[];
   world: World[] | null;
@@ -134,13 +153,9 @@ export type ImagePerson = {
 /** Every person detected in a still image, in the model's own order. */
 export function detectImage(lm: PoseLandmarker, src: ImageBitmap): ImagePerson[] {
   const r = lm.detect(src as unknown as ImageBitmap);
-  return (r.landmarks ?? []).map((lms, i) => {
-    let mask: MaskData | null = null;
-    const mp = r.segmentationMasks?.[i];
-    if (mp) {
-      mask = { data: mp.getAsFloat32Array(), width: mp.width, height: mp.height };
-      mp.close();
-    }
-    return { landmarks: toLandmarks(lms), world: toWorld(r.worldLandmarks?.[i]), mask };
-  });
+  return (r.landmarks ?? []).map((lms, i) => ({
+    landmarks: toLandmarks(lms),
+    world: toWorld(r.worldLandmarks?.[i]),
+    mask: extractMask(r.segmentationMasks, i),
+  }));
 }

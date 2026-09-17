@@ -5,6 +5,7 @@ import {
   detectVideo,
   initVideoHandLandmarker,
   initVideoLandmarker,
+  setSegmentationEnabled,
   type InitOpts,
 } from './runLandmarker';
 import type { HandLandmarker, PoseLandmarker } from '@mediapipe/tasks-vision';
@@ -42,6 +43,11 @@ const api = {
     if (handLandmarkerPromise) {
       handLandmarker = await handLandmarkerPromise;
     }
+  },
+  /** Reconfigures the already-loaded pose model; no second model involved. */
+  async setBodyOutline(enabled: boolean): Promise<void> {
+    if (!landmarker) return;
+    await setSegmentationEnabled(landmarker, enabled);
   },
   detect(bitmap: ImageBitmap, ts: number): PoseResult {
     if (!landmarker) throw new Error('worker landmarker not initialised');

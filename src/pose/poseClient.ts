@@ -10,6 +10,7 @@ import {
   detectVideo,
   initVideoHandLandmarker,
   initVideoLandmarker,
+  setSegmentationEnabled,
 } from './runLandmarker';
 import { WASM_PATH } from './wasmPath';
 import type { PoseWorkerApi } from './worker';
@@ -23,6 +24,8 @@ export interface PoseEngine {
   detect(video: HTMLVideoElement, ts: number): Promise<PoseResult>;
   /** Lazily loads the hand model on first enable; a no-op cost after that. */
   setHandTracking(enabled: boolean): Promise<void>;
+  /** Reconfigures the already-loaded pose model; no second model involved. */
+  setBodyOutline(enabled: boolean): Promise<void>;
   close(): void;
 }
 
@@ -60,6 +63,9 @@ async function workerEngine(): Promise<PoseEngine> {
     },
     setHandTracking(enabled) {
       return api.setHandTracking(enabled);
+    },
+    setBodyOutline(enabled) {
+      return api.setBodyOutline(enabled);
     },
     close() {
       worker.terminate();
@@ -102,6 +108,9 @@ async function mainThreadEngine(): Promise<PoseEngine> {
       if (handLmPromise) {
         handLm = await handLmPromise;
       }
+    },
+    setBodyOutline(enabled) {
+      return setSegmentationEnabled(lm, enabled);
     },
     close() {
       lm.close();

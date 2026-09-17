@@ -2,7 +2,7 @@ import type { LiveAngles } from '../match/liveAngles';
 import { HAND_CONNECTIONS } from '../pose/handLandmarks';
 import { CONNECTIONS, CONNECTION_JOINT, LM, connKey } from '../pose/landmarks';
 import { dist, mid, normalizePose } from '../match/normalize';
-import type { Hand, Landmark } from '../pose/types';
+import type { Hand, Landmark, MaskData } from '../pose/types';
 
 export type SilhouetteHandle = {
   img: CanvasImageSource;
@@ -38,6 +38,8 @@ export type OverlayInput = {
   hands?: Hand[];
   /** Live display only, for the 'blueprint' style's on-screen callouts. */
   angles?: LiveAngles | null;
+  /** Live display only, for the body-outline glow. */
+  mask?: MaskData | null;
   showGrid: boolean;
   ghostStyle?: 'skeleton' | 'silhouette' | 'both' | 'blueprint';
   /** Device left/right tilt in degrees; draws a centred level bar. */
@@ -166,6 +168,57 @@ function drawHands(
   }
 }
 
+// ---- body outline: soft glow contour traced from the segmentation mask -------
+
+const OUTLINE_RGB: [number, number, number] = [34, 211, 238]; // --accent cyan
+let maskCanvas: HTMLCanvasElement | null = null;
+
+/** Thresholds + tints the mask into a reusable offscreen canvas (resized only when needed). */
+function maskToCanvas(mask: MaskData): HTMLCanvasElement {
+  maskCanvas ??= document.createElement('canvas');
+  if (maskCanvas.width !== mask.width || maskCanvas.height !== mask.height) {
+    maskCanvas.width = mask.width;
+    maskCanvas.height = mask.height;
+  }
+  const mctx = maskCanvas.getContext('2d');
+  if (!mctx) return maskCanvas;
+  const img = mctx.createImageData(mask.width, mask.height);
+  const [r, g, b] = OUTLINE_RGB;
+  for (let i = 0; i < mask.data.length; i++) {
+    const o = i * 4;
+    img.data[o] = r;
+    img.data[o + 1] = g;
+    img.data[o + 2] = b;
+    img.data[o + 3] = mask.data[i] > 0.5 ? 255 : 0;
+  }
+  mctx.putImageData(img, 0, 0);
+  return maskCanvas;
+}
+
+/**
+ * Draws a glowing rim around the mask shape: a blurred copy, then the same
+ * sharp shape punched out of it (`destination-out`), leaving only the halo
+ * that spread past the sharp edge. Must run before anything else this frame
+ * so the punch can't erase other already-drawn overlay pixels.
+ */
+function drawBodyOutline(ctx: CanvasRenderingContext2D, mask: MaskData, project: Project): void {
+  const canvas = maskToCanvas(mask);
+  const [x0, y0] = project(0, 0);
+  const [x1, y1] = project(1, 1);
+  const dw = x1 - x0;
+  const dh = y1 - y0;
+
+  ctx.save();
+  ctx.filter = 'blur(8px)';
+  ctx.globalAlpha = 0.9;
+  ctx.drawImage(canvas, x0, y0, dw, dh);
+  ctx.filter = 'none';
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'destination-out';
+  ctx.drawImage(canvas, x0, y0, dw, dh);
+  ctx.restore();
+}
+
 // ---- blueprint style: monochrome line skeleton + live angle callouts --------
 
 const MONO = 'rgba(255,255,255,0.9)';
@@ -287,6 +340,10 @@ export function drawOverlay(ctx: CanvasRenderingContext2D, input: OverlayInput):
     ctx.translate(w, 0);
     ctx.scale(-1, 1);
   }
+
+  // Must run first: it punches a hole in whatever it draws, so anything drawn
+  // before it in this pass could get partially erased where it overlaps the body.
+  if (input.mask) drawBodyOutline(ctx, input.mask, project);
 
   if (showGrid) drawThirds(ctx, w, h);
 
