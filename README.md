@@ -12,7 +12,8 @@ phone camera — like the Huawei / Xiaomi "ghost silhouette" pose guide.
 - **Match scoring:** joint-angle comparison, normalized for body size and camera
   distance. Each limb turns green / yellow / red by how close it is.
 - Short coaching hints ("raise your left arm", "step back").
-- Auto-shutter when you hold the pose, or tap to capture. Save / share the photo.
+- Auto-shutter when you hold the pose, or tap to capture. The review screen
+  shows a match badge (score, reference thumbnail) before you save / share.
 - Templates saved locally (IndexedDB) with JSON export / import.
 
 **Phase 2:**

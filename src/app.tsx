@@ -125,7 +125,14 @@ export function App() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [preview3dOpen, setPreview3dOpen] = useState(false);
-  const [review, setReview] = useState<{ url: string; blob: Blob | null } | null>(null);
+  const [review, setReview] = useState<{
+    url: string;
+    blob: Blob | null;
+    score: number | null;
+    ready: boolean;
+    templateName: string | null;
+    templateThumb: string | null;
+  } | null>(null);
   const reviewRef = useRef(review);
   reviewRef.current = review;
 
@@ -335,7 +342,14 @@ export function App() {
 
     const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/jpeg', 0.92));
     if (!blob) return;
-    setReview({ url: URL.createObjectURL(blob), blob });
+    setReview({
+      url: URL.createObjectURL(blob),
+      blob,
+      score: activeTemplate ? stats.score : null,
+      ready: stats.ready,
+      templateName: activeTemplate?.name ?? null,
+      templateThumb: activeTemplate?.thumb ?? null,
+    });
   }
 
   async function importPhoto(file: File) {
@@ -560,6 +574,10 @@ export function App() {
         <ReviewScreen
           url={review.url}
           blob={review.blob}
+          score={review.score}
+          ready={review.ready}
+          templateName={review.templateName}
+          templateThumb={review.templateThumb}
           onRetake={() => {
             URL.revokeObjectURL(review.url);
             setReview(null);
