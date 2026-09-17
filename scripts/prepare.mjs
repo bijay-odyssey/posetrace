@@ -48,58 +48,129 @@ function copyWasm() {
 }
 
 // ---- procedural icons (no native deps) ---------------------------------------
-const BG = [11, 11, 15, 255];
+// Rendered supersampled (SS x final size) then box-filtered down, so edges are
+// anti-aliased instead of the hard jagged pixels a 1x raster stamp produces.
+const BG_TOP = [17, 18, 26, 255];
+const BG_BOTTOM = [8, 8, 12, 255];
 const INK = [34, 211, 238, 255]; // cyan-400
+const GLOW = [34, 211, 238];
+const SS = 4;
 
-function stampDisc(png, cx, cy, r, color) {
-  const { width: w, height: h, data } = png;
-  for (let y = Math.max(0, cy - r | 0); y <= Math.min(h - 1, cy + r); y++) {
-    for (let x = Math.max(0, cx - r | 0); x <= Math.min(w - 1, cx + r); x++) {
-      if ((x - cx) ** 2 + (y - cy) ** 2 <= r * r) {
-        const i = (w * y + x) << 2;
-        data[i] = color[0]; data[i + 1] = color[1]; data[i + 2] = color[2]; data[i + 3] = color[3];
-      }
+function makeBuffer(size) {
+  return { size, data: new Uint8ClampedArray(size * size * 4).fill(255) };
+}
+
+function setPx(buf, x, y, color) {
+  if (x < 0 || y < 0 || x >= buf.size || y >= buf.size) return;
+  const i = (buf.size * y + x) * 4;
+  buf.data[i] = color[0];
+  buf.data[i + 1] = color[1];
+  buf.data[i + 2] = color[2];
+  buf.data[i + 3] = color[3] ?? 255;
+}
+
+function fillGradient(buf, top, bottom) {
+  for (let y = 0; y < buf.size; y++) {
+    const t = y / (buf.size - 1);
+    const c = [0, 1, 2].map((k) => Math.round(top[k] + (bottom[k] - top[k]) * t));
+    for (let x = 0; x < buf.size; x++) setPx(buf, x, y, c);
+  }
+}
+
+function stampDisc(buf, cx, cy, r, color) {
+  const y0 = Math.max(0, Math.floor(cy - r));
+  const y1 = Math.min(buf.size - 1, Math.ceil(cy + r));
+  const x0 = Math.max(0, Math.floor(cx - r));
+  const x1 = Math.min(buf.size - 1, Math.ceil(cx + r));
+  for (let y = y0; y <= y1; y++) {
+    for (let x = x0; x <= x1; x++) {
+      if ((x - cx) ** 2 + (y - cy) ** 2 <= r * r) setPx(buf, x, y, color);
     }
   }
 }
 
-function stampLine(png, x0, y0, x1, y1, thick, color) {
-  const steps = Math.ceil(Math.hypot(x1 - x0, y1 - y0));
+function stampLine(buf, x0, y0, x1, y1, thick, color) {
+  const steps = Math.ceil(Math.hypot(x1 - x0, y1 - y0) * 2);
   for (let s = 0; s <= steps; s++) {
     const t = s / steps;
-    stampDisc(png, Math.round(x0 + (x1 - x0) * t), Math.round(y0 + (y1 - y0) * t), thick, color);
+    stampDisc(buf, x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, thick, color);
   }
 }
 
-function drawIcon(size, scale) {
-  const png = new PNG({ width: size, height: size });
-  for (let i = 0; i < png.data.length; i += 4) {
-    png.data[i] = BG[0]; png.data[i + 1] = BG[1]; png.data[i + 2] = BG[2]; png.data[i + 3] = BG[3];
+/** Soft radial falloff, alpha-blended onto the existing background (a real glow, not a hard-edged disc). */
+function stampGlow(buf, cx, cy, r, rgb, peakAlpha) {
+  const y0 = Math.max(0, Math.floor(cy - r));
+  const y1 = Math.min(buf.size - 1, Math.ceil(cy + r));
+  const x0 = Math.max(0, Math.floor(cx - r));
+  const x1 = Math.min(buf.size - 1, Math.ceil(cx + r));
+  for (let y = y0; y <= y1; y++) {
+    for (let x = x0; x <= x1; x++) {
+      const d = Math.hypot(x - cx, y - cy) / r;
+      if (d > 1) continue;
+      const a = peakAlpha * (1 - d) ** 2;
+      const i = (buf.size * y + x) * 4;
+      buf.data[i] = buf.data[i] * (1 - a) + rgb[0] * a;
+      buf.data[i + 1] = buf.data[i + 1] * (1 - a) + rgb[1] * a;
+      buf.data[i + 2] = buf.data[i + 2] * (1 - a) + rgb[2] * a;
+    }
   }
-  // stick figure in a centred box of side = size*scale
-  const box = size * scale;
-  const ox = (size - box) / 2;
-  const oy = (size - box) / 2;
+}
+
+/** Box-filter downsample from an SS-oversized buffer into a final-size PNG. */
+function downsample(buf, outSize) {
+  const ss = buf.size / outSize;
+  const png = new PNG({ width: outSize, height: outSize });
+  for (let oy = 0; oy < outSize; oy++) {
+    const sy0 = Math.floor(oy * ss);
+    const sy1 = Math.floor((oy + 1) * ss);
+    for (let ox = 0; ox < outSize; ox++) {
+      const sx0 = Math.floor(ox * ss);
+      const sx1 = Math.floor((ox + 1) * ss);
+      let r = 0, g = 0, b = 0, a = 0, n = 0;
+      for (let y = sy0; y < sy1; y++) {
+        for (let x = sx0; x < sx1; x++) {
+          const i = (buf.size * y + x) * 4;
+          r += buf.data[i]; g += buf.data[i + 1]; b += buf.data[i + 2]; a += buf.data[i + 3];
+          n++;
+        }
+      }
+      const o = (outSize * oy + ox) * 4;
+      png.data[o] = Math.round(r / n);
+      png.data[o + 1] = Math.round(g / n);
+      png.data[o + 2] = Math.round(b / n);
+      png.data[o + 3] = Math.round(a / n);
+    }
+  }
+  return png;
+}
+
+function drawIcon(size, scale) {
+  const buf = makeBuffer(size * SS);
+  fillGradient(buf, BG_TOP, BG_BOTTOM);
+
+  const box = size * SS * scale;
+  const ox = (size * SS - box) / 2;
+  const oy = (size * SS - box) / 2;
   const P = (nx, ny) => [ox + nx * box, oy + ny * box];
-  const lw = Math.max(2, box * 0.028);
-  const jr = Math.max(2, box * 0.022);
+  const lw = Math.max(2, box * 0.026);
+  const jr = Math.max(2, box * 0.02);
 
   const head = P(0.5, 0.16);
-  const neck = P(0.5, 0.30);
-  const hip = P(0.5, 0.60);
+  const neck = P(0.5, 0.3);
+  const hip = P(0.5, 0.6);
   const lSho = P(0.34, 0.34), rSho = P(0.66, 0.34);
-  const lHand = P(0.24, 0.60), rHand = P(0.80, 0.52);
-  const lFoot = P(0.36, 0.92), rFoot = P(0.62, 0.90);
+  const lHand = P(0.24, 0.6), rHand = P(0.8, 0.52);
+  const lFoot = P(0.36, 0.92), rFoot = P(0.62, 0.9);
 
-  stampLine(png, ...neck, ...hip, lw, INK);
-  stampLine(png, ...lSho, ...rSho, lw, INK);
-  stampLine(png, ...lSho, ...lHand, lw, INK);
-  stampLine(png, ...rSho, ...rHand, lw, INK);
-  stampLine(png, ...hip, ...lFoot, lw, INK);
-  stampLine(png, ...hip, ...rFoot, lw, INK);
-  for (const p of [neck, hip, lSho, rSho, lHand, rHand, lFoot, rFoot]) stampDisc(png, Math.round(p[0]), Math.round(p[1]), jr, INK);
-  stampDisc(png, Math.round(head[0]), Math.round(head[1]), box * 0.085, INK);
-  return png;
+  stampGlow(buf, ...P(0.5, 0.48), box * 0.62, GLOW, 0.22);
+
+  for (const [a, b] of [[neck, hip], [lSho, rSho], [lSho, lHand], [rSho, rHand], [hip, lFoot], [hip, rFoot]]) {
+    stampLine(buf, a[0], a[1], b[0], b[1], lw, INK);
+  }
+  for (const p of [neck, hip, lSho, rSho, lHand, rHand, lFoot, rFoot]) stampDisc(buf, p[0], p[1], jr, INK);
+  stampDisc(buf, head[0], head[1], box * 0.085, INK);
+
+  return downsample(buf, size);
 }
 
 function savePng(png, file) {
