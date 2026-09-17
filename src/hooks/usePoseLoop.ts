@@ -59,6 +59,9 @@ type Props = {
   levelRef?: Ref<{ roll: number }>;
   silhouetteRef?: Ref<SilhouetteHandle>;
   frameRef?: Ref<FrameSnapshot>;
+  /** Updated every frame (unthrottled), unlike the `onStats` callback below -
+   *  read this for a same-instant snapshot (e.g. at the moment of capture). */
+  statsRef?: Ref<LoopStats>;
   onStats: (s: LoopStats) => void;
   onAutoCapture: () => void;
   onReadyChange?: (ready: boolean) => void;
@@ -279,19 +282,25 @@ export function usePoseLoop(props: Props): void {
         latest.current.onReadyChange?.(readyNow);
       }
 
+      // Computed every frame (not throttled) so a capture triggered right after
+      // a template switch or a fast-changing score doesn't read stale React
+      // state - `onStats` below still only pushes to the UI every 150ms.
+      const currentStats: LoopStats = {
+        score: match?.score ?? group?.score ?? 0,
+        perScore: group
+          ? group.perPose.map((r, i) => (group!.assigned[i] == null ? -1 : r.score))
+          : [],
+        hints: match?.hints ?? groupHints(group),
+        ready: readyNow,
+        fps,
+        mode: engine.mode,
+      };
+      if (latest.current.statsRef) latest.current.statsRef.current = currentStats;
+
       const now = performance.now();
       if (now - lastStatPush > 150) {
         lastStatPush = now;
-        latest.current.onStats({
-          score: match?.score ?? group?.score ?? 0,
-          perScore: group
-            ? group.perPose.map((r, i) => (group!.assigned[i] == null ? -1 : r.score))
-            : [],
-          hints: match?.hints ?? groupHints(group),
-          ready: readyNow,
-          fps,
-          mode: engine.mode,
-        });
+        latest.current.onStats(currentStats);
 
         if (s?.autoShutter && readyNow) {
           readySince ??= now;
