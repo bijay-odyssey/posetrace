@@ -33,6 +33,8 @@ import { PosePreview3D } from './ui/PosePreview3D';
 import { ReviewScreen } from './ui/ReviewScreen';
 import type { Template } from './pose/types';
 
+const SEEN_REF_PICKER_KEY = 'posetrace:seenRefPicker';
+
 const DEFAULT_SETTINGS: LoopSettings = {
   mirror: false,
   showGrid: true,
@@ -121,9 +123,29 @@ export function App() {
 
   useWakeLock(phase === 'live');
 
+  const [templatesLoaded, setTemplatesLoaded] = useState(false);
   useEffect(() => {
-    listTemplates().then(setTemplates).catch(() => undefined);
+    listTemplates()
+      .then(setTemplates)
+      .catch(() => undefined)
+      .finally(() => setTemplatesLoaded(true));
   }, []);
+
+  // First-ever camera start with nothing saved yet: open the reference picker
+  // once so the feature isn't hidden behind an icon-only button. Never nags
+  // again after that (localStorage flag), even if the user picks "No reference".
+  useEffect(() => {
+    if (phase !== 'live' || !templatesLoaded || templates.length > 0) return;
+    let alreadySeen = false;
+    try {
+      alreadySeen = !!localStorage.getItem(SEEN_REF_PICKER_KEY);
+      if (!alreadySeen) localStorage.setItem(SEEN_REF_PICKER_KEY, '1');
+    } catch {
+      /* localStorage unavailable (private mode etc.) - fall back to opening
+       * once per page load rather than never, since we can't remember either way. */
+    }
+    if (!alreadySeen) setSheetOpen(true);
+  }, [phase, templatesLoaded, templates.length]);
 
   useEffect(() => {
     if (!notice) return;
@@ -343,8 +365,7 @@ export function App() {
     },
   });
 
-  const iconFor = (t: Template | null) =>
-    t?.thumb ? <img src={t.thumb} alt="" /> : '▦';
+  const iconFor = (t: Template | null) => (t?.thumb ? <img src={t.thumb} alt="" /> : '+');
 
   return (
     <>
@@ -382,6 +403,12 @@ export function App() {
 
         {preview3dOpen && activeTemplate && (
           <PosePreview3D template={activeTemplate} onClose={() => setPreview3dOpen(false)} />
+        )}
+
+        {!activeTemplate && !suggestOpen && (
+          <button class="add-ref-cta" onClick={() => setSheetOpen(true)}>
+            + Choose a pose to match
+          </button>
         )}
 
         {suggestOpen && (
